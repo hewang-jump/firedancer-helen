@@ -1626,12 +1626,7 @@ MAP_(prepare)( MAP_(t) *         join,
     /* At this point, finding any key in the map requires testing at
        most probe_max contiguous slots. */
 
-    FD_TEST( lock + lock_idx );
-    FD_LOG_NOTICE(( "lock + lock_idx: %p", (void *)(lock+lock_idx) ));
-
     MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
-    FD_LOG_NOTICE(( "private lock done" ));
-
     if( FD_UNLIKELY( (ulong)v & 1UL ) ) { err = FD_MAP_ERR_AGAIN; goto fail; } /* opt for low contention */
     version[ lock_idx ] = v;
     version_cnt++;

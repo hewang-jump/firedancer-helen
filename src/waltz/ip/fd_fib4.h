@@ -57,7 +57,7 @@ struct __attribute__((aligned(16))) fd_fib4_hop {
 
 typedef struct fd_fib4_hop fd_fib4_hop_t;
 
-#define FIB4_HMAP_ELE_MAX (128UL)
+#define FIB4_HMAP_ELE_MAX (1024UL)
 #define FIB4_HMAP_LOCK_CNT (4UL)
 #define FIB4_HMAP_PROBE_MAX (4UL)
 #define FIB4_HMAP_SEED (123456UL)
@@ -109,8 +109,9 @@ fd_fib4_delete( void * mem );
    means outgoing packets get dropped.  (This is preferable to potentially
    making an incorrect routing decision based on a partial route table.) */
 
-/* fd_fib4_clear removes all route table entries but the first.  Sets
-   the first route table entry to "throw 0.0.0.0/0 metric ((2<<32)-1)". */
+/* fd_fib4_clear removes all route table entries but the first. Remove all
+   entries in the route hmap. Sets the first route table entry to
+   "throw 0.0.0.0/0 metric ((2<<32)-1)". */
 
 void
 fd_fib4_clear( fd_fib4_t * fib );
@@ -128,10 +129,16 @@ fd_fib4_append( fd_fib4_t * fib,
                 int         prefix,
                 uint        prio );
 
-void
-fd_fib4_netmask32_insert( fd_fib4_t * fib,
-                          uint ip4_dst,
-                          fd_fib4_hop_t hop );
+/* fd_fib4_hmap_insert adds a new entry (key=ip4_dst, value=hop) to the fib4
+   hmap. Assume the netmask for the ip4_dst entry is 32, and the ip4_dst
+   entry is not already present in fib->hmap. The insertion to fib->hmap is
+   blocking. Return 1 on success, 0 if the hmap is full.
+*/
+
+int
+fd_fib4_hmap_insert( fd_fib4_t * fib,
+                     uint ip4_dst,
+                     fd_fib4_hop_t hop );
 
 /* Read APIs *************************************************************/
 
@@ -163,7 +170,7 @@ fd_fib4_hop_or( fd_fib4_hop_t const * left,
 FD_FN_PURE ulong
 fd_fib4_max( fd_fib4_t const * fib );
 
-/* fd_fib4_cnt returns the number of routes in the table. */
+/* fd_fib4_cnt returns the number of routes in the table and the hmap. */
 
 FD_FN_PURE ulong
 fd_fib4_cnt( fd_fib4_t const * fib );

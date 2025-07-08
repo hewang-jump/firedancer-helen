@@ -147,13 +147,14 @@ fd_fib4_netlink_translate( fd_fib4_t *             fib,
     }
   }
 
-  if( fd_fib4_free_cnt( fib )==0UL ) return ENOSPC;
-  if( prefix==32 ) {
-    FD_LOG_NOTICE(("inserting into hmap ip4_dst: " FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( ip4_dst ) ) );
-    fd_fib4_netmask32_insert( fib, ip4_dst, hop[0] );
+  if( prefix==32 && hop[0].ip4_src ) {
+    if( !!fd_fib4_hmap_insert( fib, ip4_dst, hop[0] ) ) return 0;
+    /* Insert into the fib4 array below if hmap is full */
   }
-  *fd_fib4_append( fib, ip4_dst, prefix, prio ) = *hop;
 
+  if( fd_fib4_free_cnt( fib )==0UL ) return ENOSPC;
+
+  *fd_fib4_append( fib, ip4_dst, prefix, prio ) = *hop;
   return 0;
 }
 
@@ -161,7 +162,6 @@ int
 fd_fib4_netlink_load_table( fd_fib4_t *    fib,
                             fd_netlink_t * netlink,
                             uint           table_id ) {
-  FD_LOG_NOTICE(( "fd_fib4_netlink_load_table" ));
   uint seq = netlink->seq++;
 
   struct {

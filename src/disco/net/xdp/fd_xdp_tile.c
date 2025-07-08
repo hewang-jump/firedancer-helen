@@ -873,7 +873,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
     if( FD_UNLIKELY( ctx->has_gre_interface==0 ) ) return;   // drop. No gre interface in netdev table
 
      /* Filter for IPv4 packets. Test for ethtype==FD_ETH_HDR_TYPE_IP and IP version is IPv4 in 1 branch */
-    uint test_ethip  = ( (uint)packet[12]<<16u ) | ( (uint)packet[13]<<8u ) | (uint)( FD_IP4_GET_VERSION( *(fd_ip4_hdr_t *)iphdr ) );
+    uint test_ethip  = ( (uint)packet[12]<<16u ) | ( (uint)packet[13]<<8u ) | ( (uint)FD_IP4_GET_VERSION( *(fd_ip4_hdr_t *)iphdr ) ) ;
     if( FD_UNLIKELY( test_ethip!=( ( (uint)FD_ETH_HDR_TYPE_IP<<8u ) | 0x4U ) ) ) {
       FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was "
                     "not an IPv4 packet. It is likely your XDP program is not "
@@ -884,7 +884,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
     /* The new iphdr is where the inner iphdr was */
     iphdr                    += overhead;
 
-    if( FD_UNLIKELY( iphdr+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) > packet_end ) ) {
+    if( FD_UNLIKELY( iphdr+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)>packet_end ) ) {
       FD_DTRACE_PROBE( net_tile_err_rx_undersz );
       ctx->metrics.rx_undersz_cnt++;  // inner ip4 header invalid
       return;
@@ -907,7 +907,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
 
   /* Filter for UDP/IPv4 packets. Test for ethtype==FD_ETH_HDR_TYPE_IP, IP version is IPv4, ipproto==FD_IP4_HDR_PROTOCOL_UDP in 1
      branch */
-  uint test_ethip  = ( (uint)packet[12]<<24u ) | ( (uint)packet[13]<<16u ) | (uint)( FD_IP4_GET_VERSION( *(fd_ip4_hdr_t *)iphdr ) )<<8u | ( (uint)packet[23] );
+  uint test_ethip  = ( (uint)packet[12]<<24u ) | ( (uint)packet[13]<<16u ) | ( (uint)FD_IP4_GET_VERSION( *(fd_ip4_hdr_t *)iphdr ) <<8u ) | ( (uint)packet[23] );
   if( FD_UNLIKELY( test_ethip!=( ( (uint)FD_ETH_HDR_TYPE_IP<<16u ) | ( 0x4U << 8u ) | ( (uint)FD_IP4_HDR_PROTOCOL_UDP ) ) ) ) {
     FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
                   "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "

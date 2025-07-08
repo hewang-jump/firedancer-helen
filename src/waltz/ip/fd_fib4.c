@@ -42,15 +42,11 @@ fd_fib4_new( void * mem,
     return NULL;
   }
 
-  ulong footprint = fd_fib4_footprint( route_max );
-  FD_LOG_NOTICE(( "footprint: %lu, fib align: %lu, map footprint: %lu, map align: %lu ", footprint, fd_fib4_align(), fd_fib4_hmap_footprint( FIB4_HMAP_ELE_MAX, FIB4_HMAP_LOCK_CNT, FIB4_HMAP_PROBE_MAX ),  fd_fib4_hmap_align() ));
-
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_fib4_t *     fib4 = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_t),     sizeof(fd_fib4_t)               );
-  fd_fib4_key_t * keys = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_key_t), route_max*sizeof(fd_fib4_key_t) );
-  fd_fib4_hop_t * vals = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_hop_t), route_max*sizeof(fd_fib4_hop_t) );
-  ulong fib4_hmap_footprint = fd_fib4_hmap_footprint( FIB4_HMAP_ELE_MAX, FIB4_HMAP_LOCK_CNT, FIB4_HMAP_PROBE_MAX  );
-  void * fib4_hmap_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_fib4_hmap_align(), fib4_hmap_footprint );
+  fd_fib4_t *     fib4     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_t),     sizeof(fd_fib4_t)               );
+  fd_fib4_key_t * keys     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_key_t), route_max*sizeof(fd_fib4_key_t) );
+  fd_fib4_hop_t * vals     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_hop_t), route_max*sizeof(fd_fib4_hop_t) );
+  void * fib4_hmap_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_fib4_hmap_align(), fd_fib4_hmap_footprint( FIB4_HMAP_ELE_MAX, FIB4_HMAP_LOCK_CNT, FIB4_HMAP_PROBE_MAX ) );
   void * fib4_hmap_ele_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_hmap_entry_t), FIB4_HMAP_ELE_MAX*sizeof(fd_fib4_hmap_entry_t) );
   FD_TEST( fib4_hmap_mem );
   FD_TEST( fib4_hmap_ele_mem );
@@ -59,22 +55,17 @@ fd_fib4_new( void * mem,
   fd_memset( fib4, 0, sizeof(fd_fib4_t)               );
   fd_memset( keys, 0, route_max*sizeof(fd_fib4_key_t) );
   fd_memset( vals, 0, route_max*sizeof(fd_fib4_hop_t) );
-  fd_memset( fib4_hmap_mem, 0, fib4_hmap_footprint );
   fd_memset( fib4_hmap_ele_mem, 0, FIB4_HMAP_ELE_MAX*sizeof(fd_fib4_hmap_entry_t) );
 
-  fib4->max     = route_max;
-  fib4->hop_off = (ulong)vals - (ulong)fib4;
-  keys[0].prio  = UINT_MAX;
-  vals[0].rtype = FD_FIB4_RTYPE_THROW;
-
-  FD_LOG_NOTICE(( "fib4_hmap_mem: %p, fib4_hmap_ele_mem: %p", fib4_hmap_mem, fib4_hmap_ele_mem ));
-
   FD_TEST( fd_fib4_hmap_new( fib4_hmap_mem, FIB4_HMAP_ELE_MAX, FIB4_HMAP_LOCK_CNT, FIB4_HMAP_PROBE_MAX, FIB4_HMAP_SEED ) );
-  FD_TEST( fd_fib4_hmap_join( &fib4->netmask32_map, fib4_hmap_mem, fib4_hmap_ele_mem  ) );
 
-  fd_fib4_hop_t x;
-  x.flags = 0;
-  fd_fib4_netmask32_insert( fib4, FD_IP4_ADDR(196,128,123,6), x );
+  fib4->max              = route_max;
+  fib4->hop_off          = (ulong)vals - (ulong)fib4;
+  fib4->hmap_offset      = (ulong)fib4_hmap_mem - (ulong)fib4;
+  fib4->hmap_elem_offset = (ulong)fib4_hmap_ele_mem - (ulong)fib4;
+  fib4->hmap_cnt         = 0;
+  keys[0].prio           = UINT_MAX;
+  vals[0].rtype          = FD_FIB4_RTYPE_THROW;
 
   fd_fib4_clear( fib4 );
 
@@ -99,6 +90,17 @@ fd_fib4_delete( void * mem ) {
 void
 fd_fib4_clear( fd_fib4_t * fib4 ) {
   fib4->cnt = 1UL;
+
+  if( fib4->hmap_cnt==0 ) return;
+
+  fd_fib4_hmap_t hmap[1];
+  FD_TEST( fd_fib4_hmap_join( hmap, fd_fib4_hmap_mem( fib4 ), fd_fib4_hmap_ele_mem( fib4 ) ) );
+
+  fib4->hmap_cnt = 0;
+  ulong ignored[ fd_fib4_hmap_lock_max( ) ];
+  fd_fib4_hmap_lock_range( hmap, 0, fd_fib4_hmap_lock_cnt( hmap ), FD_MAP_FLAG_BLOCKING, ignored );
+  fd_fib4_hmap_new( fd_fib4_hmap_mem( fib4 ), FIB4_HMAP_ELE_MAX, FIB4_HMAP_LOCK_CNT, FIB4_HMAP_PROBE_MAX, FIB4_HMAP_SEED );
+  fd_memset( fd_fib4_hmap_ele_mem( fib4 ), 0, FIB4_HMAP_ELE_MAX*sizeof(fd_fib4_hmap_entry_t) );
 }
 
 FD_FN_PURE ulong
@@ -108,7 +110,7 @@ fd_fib4_max( fd_fib4_t const * fib ) {
 
 FD_FN_PURE ulong
 fd_fib4_cnt( fd_fib4_t const * fib ) {
-  return fib->cnt;
+  return fib->cnt+fib->hmap_cnt;
 }
 
 ulong
@@ -152,21 +154,30 @@ fd_fib4_append( fd_fib4_t * fib,
   return entry;
 }
 
-void
-fd_fib4_netmask32_insert( fd_fib4_t * fib,
-                          uint ip4_dst,
-                          fd_fib4_hop_t hop ) {
-  (void) hop;
-  FD_LOG_NOTICE(( "fd_fib4_netmask32_insert" ));
-  ip4_dst = FD_IP4_ADDR(196, 168, 123, 1);
+int
+fd_fib4_hmap_insert( fd_fib4_t * fib,
+                     uint ip4_dst,
+                     fd_fib4_hop_t hop ) {
+
+  if( FD_UNLIKELY( fib->hmap_cnt>=FIB4_HMAP_ELE_MAX ) ) return 0;
+
+  fd_fib4_hmap_t hmap[1];
+  FD_TEST( fd_fib4_hmap_join( hmap, fd_fib4_hmap_mem( fib ), fd_fib4_hmap_ele_mem( fib ) ) );
+
   uint key = ip4_dst;
   fd_fib4_hmap_query_t query[1];
   fd_fib4_hmap_entry_t sentinel[1];
-  // ulong memo = fd_fib4_hmap_key_hash( &key, FIB4_HMAP_SEED );
-  int err = fd_fib4_hmap_prepare( fib->netmask32_map, &key, sentinel, query, FD_MAP_FLAG_BLOCKING );
-  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "load err: %d", err ));
+  int err = fd_fib4_hmap_prepare( hmap, &key, sentinel, query, FD_MAP_FLAG_BLOCKING );
+  if( FD_UNLIKELY(err) ) FD_LOG_ERR(( "fd_fib4_hmap_insert failed. err: %d", err ));
 
-  FD_LOG_NOTICE(( "fd_fib4_netmask32_insert done" ));
+  fd_fib4_hmap_entry_t * ele = fd_fib4_hmap_query_ele( query );
+  ele->dst_addr              = ip4_dst;
+  ele->next_hop              = hop;
+  fib->hmap_cnt              += 1;
+
+  fd_fib4_hmap_publish( query );
+
+  return 1;
 }
 
 fd_fib4_hop_t const *
@@ -177,6 +188,33 @@ fd_fib4_lookup( fd_fib4_t const * fib,
   if( FD_UNLIKELY( flags ) ) {
     return fd_fib4_hop_tbl_const( fib ) + 0; /* dead route */
   }
+
+  FD_TEST( out );
+
+  if( fib->hmap_cnt>0 ) {
+    fd_fib4_hmap_t hmap[1];
+    FD_TEST( fd_fib4_hmap_join( hmap, fd_fib4_hmap_mem( (void *)fib ), fd_fib4_hmap_ele_mem( (void *)fib ) ) );
+    uint key = ip4_dst;
+    fd_fib4_hmap_query_t query[1];
+    fd_fib4_hmap_entry_t sentinel[1];
+    int find_err  = fd_fib4_hmap_query_try( hmap, &key, sentinel, query, 0 );
+    if( find_err==FD_MAP_SUCCESS ) {
+      fd_fib4_hmap_entry_t const * ele = fd_fib4_hmap_query_ele_const( query );
+      fd_fib4_hop_t next_hop           = ele->next_hop;                    // speculatively save the next hop
+      find_err                         = fd_fib4_hmap_query_test( query ); // test again
+      if( FD_UNLIKELY( find_err ) ) {
+        out->rtype=FD_FIB4_RTYPE_THROW;
+        return out;
+      }
+      *out = next_hop;
+      return out;
+
+    } else if( FD_UNLIKELY( find_err==FD_MAP_ERR_AGAIN ) ) {
+      out->rtype=FD_FIB4_RTYPE_THROW;
+      return out;
+    }
+  }
+
   ip4_dst = fd_uint_bswap( ip4_dst );
   fd_fib4_key_t const * keys = fd_fib4_key_tbl_const( fib );
 
