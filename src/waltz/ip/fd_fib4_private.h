@@ -13,6 +13,7 @@ struct __attribute__((aligned(FD_FIB4_ALIGN))) fd_fib4_key {
 typedef struct fd_fib4_key fd_fib4_key_t;
 
 struct __attribute__((aligned(FD_FIB4_ALIGN))) fd_fib4 {
+  fd_fib4_hmap_t netmask32_map[1];
   ulong generation;
   ulong cnt;
   ulong max;
@@ -21,12 +22,12 @@ struct __attribute__((aligned(FD_FIB4_ALIGN))) fd_fib4 {
   /* fd_fib4_hop_t[] follows */
 };
 
-FD_FN_CONST ulong
+FD_FN_CONST static inline ulong
 fd_fib4_key_tbl_laddr( fd_fib4_t const * fib ) {
   return (ulong)fib + sizeof(fd_fib4_t);
 }
 
-FD_FN_PURE ulong
+FD_FN_PURE static inline ulong
 fd_fib4_hop_tbl_laddr( fd_fib4_t const * fib ) {
   return (ulong)fib + fib->hop_off;
 }

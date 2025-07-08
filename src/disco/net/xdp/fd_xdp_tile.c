@@ -648,8 +648,8 @@ before_frag( fd_net_ctx_t * ctx,
     ctx->tx_op.src_ip  = 0;
     ctx->tx_op.use_gre = 0;
     if( FD_UNLIKELY( !net_tx_route( ctx, ctx->tx_op.gre_outer_dst_ip ) ) ) {
-    return 1; /* metrics incremented by net_tx_route */
-  }
+      return 1; /* metrics incremented by net_tx_route */
+    }
     if( ctx->tx_op.use_gre==1 ) {
       /* Only one layer of tunnelling supported */
       ctx->metrics.tx_route_fail_cnt++;
@@ -798,8 +798,13 @@ after_frag( fd_net_ctx_t *      ctx,
 
   /* Construct (inner) ip header */
   uint   ihl         = FD_IP4_GET_LEN( *(fd_ip4_hdr_t *)iphdr );
+  uint   ver         = FD_IP4_GET_VERSION( *(fd_ip4_hdr_t *)iphdr );
   uint   ip4_saddr   = FD_LOAD( uint, iphdr+12 );
   ushort ethertype   = FD_LOAD( ushort, frame+12 );
+  if( ethertype==fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) && ver!=0x4 ) {
+    FD_LOG_ERR(( "Firedancer received a packet from in link that was "
+                    "not an IPv4 packet." ));
+  }
 
   if( ethertype==fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) && ip4_saddr==0 ) {
     if( FD_UNLIKELY( ctx->tx_op.src_ip==0 ||
@@ -857,15 +862,33 @@ net_rx_packet( fd_net_ctx_t * ctx,
   uchar const * packet_end   = packet + sz;
   uchar *       iphdr        = packet + 14U;
 
+  if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) ) {
+    FD_DTRACE_PROBE( net_tile_err_rx_undersz );
+    ctx->metrics.rx_undersz_cnt++;
+    return;
+  }
+
   /* Discard the GRE overhead (outer iphdr and gre hdr) */
   if( iphdr[9] == FD_IP4_HDR_PROTOCOL_GRE ) {
+    if( FD_UNLIKELY( ctx->has_gre_interface==0 ) ) return;   // drop. No gre interface in netdev table
 
-    if( FD_UNLIKELY( ctx->has_gre_interface==0 ) ) return;   // drop
-
+     /* Filter for IPv4 packets. Test for ethtype==FD_ETH_HDR_TYPE_IP and IP version is IPv4 in 1 branch */
+    uint test_ethip  = ( (uint)packet[12]<<16u ) | ( (uint)packet[13]<<8u ) | (uint)( FD_IP4_GET_VERSION( *(fd_ip4_hdr_t *)iphdr ) );
+    if( FD_UNLIKELY( test_ethip!=( ( (uint)FD_ETH_HDR_TYPE_IP<<8u ) | 0x4U ) ) ) {
+      FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was "
+                    "not an IPv4 packet. It is likely your XDP program is not "
+                    "configured correctly." ));
+    }
     ulong overhead           = FD_IP4_GET_LEN( *(fd_ip4_hdr_t *)iphdr ) + sizeof(fd_gre_hdr_t);
 
     /* The new iphdr is where the inner iphdr was */
     iphdr                    += overhead;
+
+    if( FD_UNLIKELY( iphdr+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) > packet_end ) ) {
+      FD_DTRACE_PROBE( net_tile_err_rx_undersz );
+      ctx->metrics.rx_undersz_cnt++;  // inner ip4 header invalid
+      return;
+    }
 
     /* Copy over the eth_hdr */
     fd_eth_hdr_t * new_packet = (fd_eth_hdr_t *)( (char *)iphdr - sizeof(fd_eth_hdr_t) );
@@ -882,10 +905,10 @@ net_rx_packet( fd_net_ctx_t * ctx,
   ulong ctl         = umem_off & 0x3fUL;
 
 
-  /* Filter for UDP/IPv4 packets. Test for ethtype and ipproto in 1
+  /* Filter for UDP/IPv4 packets. Test for ethtype==FD_ETH_HDR_TYPE_IP, IP version is IPv4, ipproto==FD_IP4_HDR_PROTOCOL_UDP in 1
      branch */
-  uint test_ethip  = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
-  if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
+  uint test_ethip  = ( (uint)packet[12]<<24u ) | ( (uint)packet[13]<<16u ) | (uint)( FD_IP4_GET_VERSION( *(fd_ip4_hdr_t *)iphdr ) )<<8u | ( (uint)packet[23] );
+  if( FD_UNLIKELY( test_ethip!=( ( (uint)FD_ETH_HDR_TYPE_IP<<16u ) | ( 0x4U << 8u ) | ( (uint)FD_IP4_HDR_PROTOCOL_UDP ) ) ) ) {
     FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
                   "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
                   "is not configured correctly." ));
@@ -894,13 +917,6 @@ net_rx_packet( fd_net_ctx_t * ctx,
   /* IPv4 is variable-length, so lookup IHL to find start of UDP */
   uint iplen        = FD_IP4_GET_LEN( *(fd_ip4_hdr_t *)iphdr );
   uchar const * udp = iphdr + iplen;
-
-  /* Ignore if UDP header is too short */
-  if( FD_UNLIKELY( udp+8U > packet_end ) ) {
-    FD_DTRACE_PROBE( net_tile_err_rx_undersz );
-    ctx->metrics.rx_undersz_cnt++;
-    return;
-  }
 
   /* Extract IP dest addr and UDP src/dest port */
   uint ip_srcaddr    =                  *(uint   *)( iphdr+12UL );

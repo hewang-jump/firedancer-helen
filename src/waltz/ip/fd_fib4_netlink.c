@@ -12,6 +12,8 @@
 #include <arpa/inet.h>
 #include "../../util/fd_util.h"
 
+#include "../../util/net/fd_ip4.h"
+
 FD_STATIC_ASSERT( FD_FIB4_RTYPE_UNSPEC   ==RTN_UNSPEC,    linux );
 FD_STATIC_ASSERT( FD_FIB4_RTYPE_UNICAST  ==RTN_UNICAST,   linux );
 FD_STATIC_ASSERT( FD_FIB4_RTYPE_LOCAL    ==RTN_LOCAL,     linux );
@@ -146,6 +148,10 @@ fd_fib4_netlink_translate( fd_fib4_t *             fib,
   }
 
   if( fd_fib4_free_cnt( fib )==0UL ) return ENOSPC;
+  if( prefix==32 ) {
+    FD_LOG_NOTICE(("inserting into hmap ip4_dst: " FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( ip4_dst ) ) );
+    fd_fib4_netmask32_insert( fib, ip4_dst, hop[0] );
+  }
   *fd_fib4_append( fib, ip4_dst, prefix, prio ) = *hop;
 
   return 0;
@@ -155,7 +161,7 @@ int
 fd_fib4_netlink_load_table( fd_fib4_t *    fib,
                             fd_netlink_t * netlink,
                             uint           table_id ) {
-
+  FD_LOG_NOTICE(( "fd_fib4_netlink_load_table" ));
   uint seq = netlink->seq++;
 
   struct {

@@ -21,7 +21,7 @@
 
 #include "../../util/fd_util_base.h"
 
-#define FD_FIB4_ALIGN (16UL)
+#define FD_FIB4_ALIGN (128UL)
 
 /* FD_FIB4_RTYPE_{...} enumerate route types.
    These match Linux RTN_UNICAST, etc. */
@@ -56,6 +56,27 @@ struct __attribute__((aligned(16))) fd_fib4_hop {
 #define FD_FIB4_FLAG_RTYPE_UNSUPPORTED ((uchar)0x03U) /* unsupported route type */
 
 typedef struct fd_fib4_hop fd_fib4_hop_t;
+
+#define FIB4_HMAP_ELE_MAX (128UL)
+#define FIB4_HMAP_LOCK_CNT (4UL)
+#define FIB4_HMAP_PROBE_MAX (4UL)
+#define FIB4_HMAP_SEED (123456UL)
+
+#define MAP_NAME fd_fib4_hmap
+#define MAP_ELE_T fd_fib4_hmap_entry_t
+#define MAP_KEY_T uint
+#define MAP_KEY dst_addr
+#define MAP_KEY_HASH(key,seed) fd_uint_hash( (*(key)) ^ ((uint)seed) )
+
+struct __attribute__((aligned(16))) fd_fib4_hmap_entry {
+  uint dst_addr; /* prefix bits, little endian (low bits outside of mask are undefined) */
+  fd_fib4_hop_t next_hop;
+};
+
+typedef struct fd_fib4_hmap_entry fd_fib4_hmap_entry_t;
+
+#define MAP_IMPL_STYLE 0
+#include "../../util/tmpl/fd_map_slot_para.c"
 
 FD_PROTOTYPES_BEGIN
 
@@ -106,6 +127,11 @@ fd_fib4_append( fd_fib4_t * fib,
                 uint        ip4_dst,
                 int         prefix,
                 uint        prio );
+
+void
+fd_fib4_netmask32_insert( fd_fib4_t * fib,
+                          uint ip4_dst,
+                          fd_fib4_hop_t hop );
 
 /* Read APIs *************************************************************/
 

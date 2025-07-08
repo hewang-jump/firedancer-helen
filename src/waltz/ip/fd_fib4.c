@@ -1,6 +1,7 @@
 #include "fd_fib4.h"
 #include "fd_fib4_private.h"
 #include "../../util/fd_util.h"
+#include "../../util/net/fd_ip4.h"
 
 static const fd_fib4_hop_t
 fd_fib4_hop_blackhole = {
@@ -15,10 +16,12 @@ fd_fib4_align( void ) {
 FD_FN_CONST ulong
 fd_fib4_footprint( ulong route_max ) {
   if( route_max==0 || route_max>UINT_MAX ) return 0UL;
-  return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
+  return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
       alignof(fd_fib4_t),     sizeof(fd_fib4_t)               ),
       alignof(fd_fib4_key_t), route_max*sizeof(fd_fib4_key_t) ),
       alignof(fd_fib4_hop_t), route_max*sizeof(fd_fib4_hop_t) ),
+      fd_fib4_hmap_align(), fd_fib4_hmap_footprint( FIB4_HMAP_ELE_MAX, FIB4_HMAP_LOCK_CNT, FIB4_HMAP_PROBE_MAX  ) ),
+      alignof(fd_fib4_hmap_entry_t), FIB4_HMAP_ELE_MAX*sizeof(fd_fib4_hmap_entry_t) ),
       alignof(fd_fib4_t) );
 }
 
@@ -39,19 +42,39 @@ fd_fib4_new( void * mem,
     return NULL;
   }
 
+  ulong footprint = fd_fib4_footprint( route_max );
+  FD_LOG_NOTICE(( "footprint: %lu, fib align: %lu, map footprint: %lu, map align: %lu ", footprint, fd_fib4_align(), fd_fib4_hmap_footprint( FIB4_HMAP_ELE_MAX, FIB4_HMAP_LOCK_CNT, FIB4_HMAP_PROBE_MAX ),  fd_fib4_hmap_align() ));
+
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_fib4_t *     fib4 = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_t),     sizeof(fd_fib4_t)               );
   fd_fib4_key_t * keys = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_key_t), route_max*sizeof(fd_fib4_key_t) );
   fd_fib4_hop_t * vals = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_hop_t), route_max*sizeof(fd_fib4_hop_t) );
+  ulong fib4_hmap_footprint = fd_fib4_hmap_footprint( FIB4_HMAP_ELE_MAX, FIB4_HMAP_LOCK_CNT, FIB4_HMAP_PROBE_MAX  );
+  void * fib4_hmap_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_fib4_hmap_align(), fib4_hmap_footprint );
+  void * fib4_hmap_ele_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_hmap_entry_t), FIB4_HMAP_ELE_MAX*sizeof(fd_fib4_hmap_entry_t) );
+  FD_TEST( fib4_hmap_mem );
+  FD_TEST( fib4_hmap_ele_mem );
   FD_SCRATCH_ALLOC_FINI( l, alignof(fd_fib4_t) );
 
   fd_memset( fib4, 0, sizeof(fd_fib4_t)               );
   fd_memset( keys, 0, route_max*sizeof(fd_fib4_key_t) );
   fd_memset( vals, 0, route_max*sizeof(fd_fib4_hop_t) );
+  fd_memset( fib4_hmap_mem, 0, fib4_hmap_footprint );
+  fd_memset( fib4_hmap_ele_mem, 0, FIB4_HMAP_ELE_MAX*sizeof(fd_fib4_hmap_entry_t) );
+
   fib4->max     = route_max;
   fib4->hop_off = (ulong)vals - (ulong)fib4;
   keys[0].prio  = UINT_MAX;
   vals[0].rtype = FD_FIB4_RTYPE_THROW;
+
+  FD_LOG_NOTICE(( "fib4_hmap_mem: %p, fib4_hmap_ele_mem: %p", fib4_hmap_mem, fib4_hmap_ele_mem ));
+
+  FD_TEST( fd_fib4_hmap_new( fib4_hmap_mem, FIB4_HMAP_ELE_MAX, FIB4_HMAP_LOCK_CNT, FIB4_HMAP_PROBE_MAX, FIB4_HMAP_SEED ) );
+  FD_TEST( fd_fib4_hmap_join( &fib4->netmask32_map, fib4_hmap_mem, fib4_hmap_ele_mem  ) );
+
+  fd_fib4_hop_t x;
+  x.flags = 0;
+  fd_fib4_netmask32_insert( fib4, FD_IP4_ADDR(196,128,123,6), x );
 
   fd_fib4_clear( fib4 );
 
@@ -127,6 +150,23 @@ fd_fib4_append( fd_fib4_t * fib,
   FD_COMPILER_MFENCE();
 
   return entry;
+}
+
+void
+fd_fib4_netmask32_insert( fd_fib4_t * fib,
+                          uint ip4_dst,
+                          fd_fib4_hop_t hop ) {
+  (void) hop;
+  FD_LOG_NOTICE(( "fd_fib4_netmask32_insert" ));
+  ip4_dst = FD_IP4_ADDR(196, 168, 123, 1);
+  uint key = ip4_dst;
+  fd_fib4_hmap_query_t query[1];
+  fd_fib4_hmap_entry_t sentinel[1];
+  // ulong memo = fd_fib4_hmap_key_hash( &key, FIB4_HMAP_SEED );
+  int err = fd_fib4_hmap_prepare( fib->netmask32_map, &key, sentinel, query, FD_MAP_FLAG_BLOCKING );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "load err: %d", err ));
+
+  FD_LOG_NOTICE(( "fd_fib4_netmask32_insert done" ));
 }
 
 fd_fib4_hop_t const *
