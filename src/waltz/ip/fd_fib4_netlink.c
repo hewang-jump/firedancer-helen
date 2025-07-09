@@ -1,6 +1,7 @@
 #include "fd_fib4_netlink.h"
 #include "fd_fib4.h"
 #include "fd_netlink1.h"
+#include <sys/socket.h>
 
 #if !defined(__linux__)
 #error "fd_fib4_netlink.c requires a Linux system with kernel headers"
@@ -268,4 +269,61 @@ fd_fib4_netlink_strerror( int err ) {
   default:
     return "unknown";
   }
+}
+
+
+
+
+int
+fd_netlink_get_all_ips( fd_netlink_t * netlink ) {
+  uint seq = netlink->seq++;
+
+  struct {
+    struct nlmsghdr nlh;  /* Netlink header */
+    struct ifaddrmsg addrmsg;
+  } request;
+  request.nlh = (struct nlmsghdr) {
+    .nlmsg_type  = RTM_GETADDR,
+    .nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP,
+    .nlmsg_len   = sizeof(request),
+    .nlmsg_seq   = seq
+  };
+  request.addrmsg = (struct ifaddrmsg) {
+    .ifa_family = AF_INET, /* IPv4 */
+    .ifa_scope = RT_SCOPE_UNIVERSE
+  };
+
+  long send_res = sendto( netlink->fd, &request, sizeof(request), 0, NULL, 0 );
+
+  if( FD_UNLIKELY( send_res<0 ) ) {
+    FD_LOG_WARNING(( "netlink send(%d,RTM_GETADDR,NLM_F_REQUEST|NLM_F_DUMP) failed (%d-%s)", netlink->fd, errno, fd_io_strerror( errno ) ));
+    return errno;
+  }
+  if( FD_UNLIKELY( send_res!=sizeof(request) ) ) {
+    FD_LOG_WARNING(( "netlink send(%d,RTM_GETADDR,NLM_F_REQUEST|NLM_F_DUMP) failed (short write)", netlink->fd ));
+    return EPIPE;
+  }
+
+  uchar buf[ 4096 ];
+  fd_netlink_iter_t iter[1];
+  for( fd_netlink_iter_init( iter, netlink, buf, sizeof(buf) );
+       !fd_netlink_iter_done( iter );
+       fd_netlink_iter_next( iter, netlink ) ) {
+    struct nlmsghdr const * nlh = fd_netlink_iter_msg( iter );
+    if( FD_UNLIKELY( nlh->nlmsg_flags & NLM_F_DUMP_INTR ) ) FD_LOG_NOTICE(( "dump inconsistent" ));
+    if( FD_UNLIKELY( nlh->nlmsg_type==NLMSG_ERROR ) ) {
+      struct nlmsgerr * err = NLMSG_DATA( nlh );
+      int nl_err = -err->error;
+      FD_LOG_WARNING(( "netlink RTM_GETADDR,NLM_F_REQUEST|NLM_F_DUMP failed (%d-%s)", nl_err, fd_io_strerror( nl_err ) ));
+      return nl_err;
+    }
+    if( FD_UNLIKELY( nlh->nlmsg_type!=RTM_NEWADDR ) ) {
+      FD_LOG_DEBUG(( "unexpected nlmsg_type %u", nlh->nlmsg_type ));
+      continue;
+    }
+
+    FD_LOG_NOTICE(( "got here" ));
+  }
+
+  return 0;
 }
