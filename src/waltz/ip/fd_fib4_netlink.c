@@ -1,6 +1,7 @@
 #include "fd_fib4_netlink.h"
 #include "fd_fib4.h"
 #include "fd_netlink1.h"
+#include <linux/if_addr.h>
 #include <sys/socket.h>
 
 #if !defined(__linux__)
@@ -322,7 +323,32 @@ fd_netlink_get_all_ips( fd_netlink_t * netlink ) {
       continue;
     }
 
-    FD_LOG_NOTICE(( "got here" ));
+
+    struct ifaddrmsg * msg = NLMSG_DATA( nlh ) ;
+    struct rtattr    * rat = IFA_RTA( msg );
+    ulong rat_sz            = IFA_PAYLOAD( nlh );
+
+    FD_LOG_HEXDUMP_NOTICE(( "rat", rat, rat_sz ));
+
+    uint flags;
+    uint local_addrs;
+    uint scope = msg->ifa_scope;
+
+    for(; RTA_OK( rat, rat_sz ); rat=RTA_NEXT( rat, rat_sz ) ) {
+      void * rta   = RTA_DATA( rat );
+      switch( rat->rta_type ) {   // nla_type
+      case IFA_LOCAL: {
+        local_addrs = FD_LOAD( uint, rta );
+        break;
+      }
+      case IFA_FLAGS: {
+        uint ifa_flags = FD_LOAD( uint, rta );
+        if( !((ifa_flags & IFA_F_PERMANENT) || (ifa_flags & IFA_F_NOPREFIXROUTE))  ) continue;
+        flags = ifa_flags;
+        break;
+      }
+      }
+    }
   }
 
   return 0;
