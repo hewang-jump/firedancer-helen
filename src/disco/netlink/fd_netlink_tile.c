@@ -100,6 +100,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_netlink_tile_ctx_t), sizeof(fd_netlink_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
+  // l = FD_LAYOUT_APPEND( l, fd_dstip_hmap_align(), fd_dstip_hmap_footprint(  )  )
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
