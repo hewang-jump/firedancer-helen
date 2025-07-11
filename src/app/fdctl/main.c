@@ -16,7 +16,6 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_dbl_buf;
 extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fib4;
 extern fd_topo_obj_callbacks_t fd_obj_cb_ipfilter;
-extern fd_topo_obj_callbacks_t fd_obj_cb_ipfilter_ele;
 extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
 
@@ -31,7 +30,6 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_neigh4_hmap,
   &fd_obj_cb_fib4,
   &fd_obj_cb_ipfilter,
-  &fd_obj_cb_ipfilter_ele,
   &fd_obj_cb_keyswitch,
   &fd_obj_cb_tile,
   NULL,

@@ -16,7 +16,7 @@
 
 #include "../../../waltz/ip/fd_fib4.h"
 #include "../../../waltz/neigh/fd_neigh4_map.h"
-#include "../../../waltz/ip/fd_ipfilter.h"
+#include "../../../waltz/ip/fd_dstipfltr_netlink.h"
 #include "../../../waltz/mib/fd_netdev_tbl.h"
 #include "../../../waltz/mib/fd_dbl_buf.h"
 #include "../../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
@@ -232,7 +232,7 @@ typedef struct {
   fd_fib4_t const * fib_main;
   fd_neigh4_hmap_t  neigh4[1];
   fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
-  fd_ipfilter_hmap_t ipfilter[1];
+  fd_dstipfltr_hmap_t dstipfltr[1];
 
   /* Netdev table */
   fd_netdev_tbl_join_t netdev_tbl_handle; // handle to the netdev table itself
@@ -877,9 +877,9 @@ net_rx_packet( fd_net_ctx_t * ctx,
     if( FD_UNLIKELY( ctx->has_gre_interface==0 ) ) return;         // drop. No gre interface in netdev table
     if( FD_UNLIKELY( FD_IP4_GET_VERSION( *iphdr )!=0x4 ) ) return; // drop. IP version!=IPv4
 
-    /* Query to see if ip is allowed */
-    fd_ipfilter_t filter;
-    fd_netlink_ipfilter_query( ctx->ipfilter, iphdr->daddr, &filter );
+    /* Check if destination ip is allowed */
+    fd_dstipfltr_params_t fltr_params;
+    if( FD_UNLIKELY( !fd_netlink_dstipfltr_check( ctx->dstipfltr, iphdr->daddr, &fltr_params ) ) ) return;
 
     ulong overhead  = FD_IP4_GET_LEN( *iphdr ) + sizeof(fd_gre_hdr_t);
 
@@ -906,10 +906,9 @@ net_rx_packet( fd_net_ctx_t * ctx,
   if( FD_UNLIKELY( ( FD_IP4_GET_VERSION( *iphdr )!=0x4 ) ||
                    ( iphdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) ) return;
 
-  /* Query to see if ip is allowed */
-
-  fd_ipfilter_t filter;
-  fd_netlink_ipfilter_query( ctx->ipfilter, iphdr->daddr, &filter );
+  /* Check if destination ip is allowed */
+  fd_dstipfltr_params_t fltr_params;
+  if( FD_UNLIKELY( !fd_netlink_dstipfltr_check( ctx->dstipfltr, iphdr->daddr, &fltr_params ) ) ) return;
 
   /* IPv4 is variable-length, so lookup IHL to find start of UDP */
   uint iplen        = FD_IP4_GET_LEN( *iphdr );
@@ -1451,10 +1450,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* Loop through netdev table to find if GRE interface exists */
   ctx->has_gre_interface = net_check_gre_interface_exists( ctx );
 
-  if( FD_UNLIKELY( !fd_ipfilter_hmap_join(
-    ctx->ipfilter,
-    fd_topo_obj_laddr( topo, tile->xdp.ipfilter_obj_id ),
-    fd_topo_obj_laddr( topo, tile->xdp.ipfilter_ele_obj_id ) ) ) ) {
+  if( FD_UNLIKELY( !fd_netlink_dstipfltr_join( ctx->dstipfltr, fd_topo_obj_laddr( topo, tile->xdp.ipfilter_obj_id ) ) ) ) {
     FD_LOG_ERR(( "fd_ipfilter_hmap_join failed" ));
   }
 

@@ -4,7 +4,7 @@
 #include "../../waltz/ip/fd_netlink1.h"
 #include "../metrics/generated/fd_metrics_netlnk.h"
 #include "../../waltz/ip/fd_fib4.h"
-#include "../../waltz/ip/fd_ipfilter.h"
+#include "../../waltz/ip/fd_dstipfltr_netlink.h"
 #include "../../waltz/mib/fd_dbl_buf.h"
 #include "../../waltz/mib/fd_netdev_tbl.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
@@ -47,12 +47,8 @@ struct fd_netlink_tile_ctx {
   uint             neigh4_ifidx;
   long             idle_cnt;
 
-  /* Allowed destination IPs hmap */
-  void * ip_filter_hmap_mem;
-  void * ip_filter_hmap_ele_mem;
-  fd_ipfilter_hmap_t ipfilter_hmap[1];
-  ulong ipfilter_hmap_cnt;
-  ulong ipfilter_hmap_max;
+  /* Destination IP Filtering hmap */
+  fd_dstipfltr_hmap_t dstipfltr_hmap[1];
 
   /* Neighbor table prober */
   fd_neigh4_prober_t prober[1];

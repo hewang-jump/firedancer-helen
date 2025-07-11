@@ -3,6 +3,7 @@
 #include "fd_xdp_tile.c"
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../waltz/neigh/fd_neigh4_map.h"
+#include "../../../waltz/ip/fd_dstipfltr_netlink.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../waltz/ip/fd_fib4.h"
 #include "../../../util/tmpl/fd_map.h"
@@ -139,8 +140,21 @@ main( int     argc,
   FD_TEST( fd_dbl_buf_new( netdev_dbl_buf_mem, netdev_mtu, 0 ) );
   topo->workspaces[topo_netdev_dbl_buf_obj->wksp_id].wksp = wksp;
   topo->objs[ topo_netdev_dbl_buf_obj->id ].offset = (ulong)netdev_dbl_buf_mem - (ulong)wksp;
-  FD_TEST( fd_topo_obj_laddr(topo, topo_netdev_dbl_buf_obj->id)==netdev_dbl_buf_mem );
+  FD_TEST( fd_topo_obj_laddr( topo, topo_netdev_dbl_buf_obj->id )==netdev_dbl_buf_mem );
   topo_tile->xdp.netdev_dbl_buf_obj_id     = topo_netdev_dbl_buf_obj->id;
+
+
+  /* Ip filter hashmap setup */
+  ulong ipfilter_hmap_footprint = fd_dstipfltr_hmap_footprint( 32, 4, 32 );
+  fd_topo_obj_t * ipfilter_hmap_obj = fd_topob_obj( topo, "ipfilter", "wksp" );
+  void * ipfilter_hmap_mem = fd_wksp_alloc_laddr( wksp, fd_dstipfltr_hmap_align(), ipfilter_hmap_footprint, WKSP_TAG );
+  void * ipfilter_hmap_ele_mem = fd_wksp_alloc_laddr( wksp, alignof(fd_dstipfltr_hmap_entry_t), 32*sizeof(fd_dstipfltr_hmap_entry_t), WKSP_TAG );
+  FD_TEST( ipfilter_hmap_mem );
+  FD_TEST( ipfilter_hmap_ele_mem );
+  topo->workspaces[ ipfilter_hmap_obj->wksp_id ].wksp = wksp;
+  topo->objs[ ipfilter_hmap_obj->id ].offset = (ulong)ipfilter_hmap_mem - (ulong)wksp;
+  FD_TEST( fd_topo_obj_laddr( topo, ipfilter_hmap_obj->id )==ipfilter_hmap_mem );
+  topo_tile->xdp.ipfilter_obj_id     = ipfilter_hmap_obj->id;
 
   /* Attach links to tile */
   fd_topob_tile_out( topo, "net", 0UL, "net_shred", 0UL );
@@ -347,6 +361,13 @@ main( int     argc,
   fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl_handle.dev_tbl[IF_IDX_ETH1].mac_addr, eth1_src_mac_addr, 6 );
   ctx->netdev_tbl_handle.hdr->dev_cnt = IF_IDX_GRE + 1;
 
+  /* ip filter hashmap */
+  fd_netlink_t netlink;
+  fd_netlink_init( &netlink, 0 );
+  FD_TEST( fd_dstipfltr_hmap_new( ipfilter_hmap_mem, 32UL, 4UL, 32UL, 12345UL ) );
+  FD_TEST( fd_dstipfltr_hmap_join( ctx->dstipfltr, ipfilter_hmap_mem, ipfilter_hmap_ele_mem ) );
+  fd_netlink_dstipfltr_load( &netlink, ctx->dstipfltr );
+
   /* ctx->in*/
   rx_link->dcache = umem_frame0;
   rx_link->mtu   = FD_NET_MTU;
@@ -403,7 +424,8 @@ main( int     argc,
     .outer_ip4 = {
       .verihl      = FD_IP4_VERIHL( 4, 5 ),
       .protocol    = FD_IP4_HDR_PROTOCOL_GRE,
-      .net_tot_len = fd_ushort_bswap( 28 )
+      .net_tot_len = fd_ushort_bswap( 28 ),
+      .daddr       = FD_IP4_ADDR( 10, 0, 0, 1 )
     },
     .gre = {
       .flags_version = FD_GRE_HDR_FLG_VER_BASIC,
@@ -412,7 +434,8 @@ main( int     argc,
     .inner_ip4 = {
       .verihl      = FD_IP4_VERIHL( 4, 5 ),
       .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
-      .net_tot_len = fd_ushort_bswap( 28 )
+      .net_tot_len = fd_ushort_bswap( 28 ),
+      .daddr       = FD_IP4_ADDR( 192, 168, 123, 1 )
     },
     .udp = {
       .net_len   = fd_ushort_bswap( 8 ),
@@ -431,7 +454,8 @@ main( int     argc,
     .inner_ip4 = {
       .verihl      = FD_IP4_VERIHL( 4, 5 ),
       .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
-      .net_tot_len = fd_ushort_bswap( 28 )
+      .net_tot_len = fd_ushort_bswap( 28 ),
+      .daddr       = FD_IP4_ADDR(192, 168, 123, 1)
     },
     .udp = {
       .net_len   = fd_ushort_bswap( 8 ),
