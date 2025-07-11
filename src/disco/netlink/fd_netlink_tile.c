@@ -5,6 +5,7 @@
 #include "../../waltz/ip/fd_fib4_netlink.h"
 #include "../../waltz/mib/fd_netdev_netlink.h"
 #include "../../waltz/neigh/fd_neigh4_netlink.h"
+#include "../../waltz/ip/fd_ipfilter.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/log/fd_dtrace.h"
 #include "fd_netlink_tile.h"
@@ -26,17 +27,22 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
                         ulong            netlnk_max_routes,
                         ulong            netlnk_max_neighbors,
                         char const *     bind_interface ) {
-  fd_topo_obj_t * netdev_dbl_buf_obj = fd_topob_obj( topo, "dbl_buf",     "netbase" );
-  fd_topo_obj_t * fib4_main_obj      = fd_topob_obj( topo, "fib4",        "netbase" );
-  fd_topo_obj_t * fib4_local_obj     = fd_topob_obj( topo, "fib4",        "netbase" );
-  fd_topo_obj_t * neigh4_obj         = fd_topob_obj( topo, "neigh4_hmap", "netbase" );
-  fd_topo_obj_t * neigh4_ele_obj     = fd_topob_obj( topo, "opaque",      "netbase" );
+  FD_LOG_NOTICE(( "fd_netlink_topo_create" ));
+  fd_topo_obj_t * netdev_dbl_buf_obj = fd_topob_obj( topo, "dbl_buf",          "netbase" );
+  fd_topo_obj_t * fib4_main_obj      = fd_topob_obj( topo, "fib4",             "netbase" );
+  fd_topo_obj_t * fib4_local_obj     = fd_topob_obj( topo, "fib4",             "netbase" );
+  fd_topo_obj_t * neigh4_obj         = fd_topob_obj( topo, "neigh4_hmap",      "netbase" );
+  fd_topo_obj_t * neigh4_ele_obj     = fd_topob_obj( topo, "opaque",           "netbase" );
+  fd_topo_obj_t * ipfilter_obj       = fd_topob_obj( topo, "ipfltr_hmap",      "netbase" );
+  fd_topo_obj_t * ipfilter_ele_obj   = fd_topob_obj( topo, "ipfltr_ele",       "netbase" );
 
   fd_topob_tile_uses( topo, netlink_tile, netdev_dbl_buf_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, netlink_tile, fib4_main_obj,      FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, netlink_tile, fib4_local_obj,     FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, netlink_tile, neigh4_obj,         FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, netlink_tile, neigh4_ele_obj,     FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, netlink_tile, ipfilter_obj,       FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, netlink_tile, ipfilter_ele_obj,   FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   /* Configure double buffer of netdev table */
   ulong const netdev_dbl_buf_mtu = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
@@ -68,16 +74,21 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
   memcpy( netlink_tile->netlink.neigh_if, bind_interface, sizeof(netlink_tile->netlink.neigh_if) );
   netlink_tile->netlink.neigh4_obj_id         = neigh4_obj->id;
   netlink_tile->netlink.neigh4_ele_obj_id     = neigh4_ele_obj->id;
+  netlink_tile->netlink.ipfilter_obj_id       = ipfilter_obj->id;
+  netlink_tile->netlink.ipfilter_ele_obj_id   = ipfilter_ele_obj->id;
 }
 
 void
 fd_netlink_topo_join( fd_topo_t *      topo,
                       fd_topo_tile_t * netlink_tile,
                       fd_topo_tile_t * join_tile ) {
-  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.neigh4_obj_id     ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.neigh4_ele_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.fib4_main_obj_id  ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.fib4_local_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FD_LOG_NOTICE(( "fd_netlink_topo_join" ));
+  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.neigh4_obj_id       ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.neigh4_ele_obj_id   ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.fib4_main_obj_id    ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.fib4_local_obj_id   ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.ipfilter_obj_id     ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.ipfilter_ele_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
 }
 
 /* Begin tile methods */
@@ -93,7 +104,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_netlink_tile_ctx_t), sizeof(fd_netlink_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
-  // l = FD_LAYOUT_APPEND( l, fd_dstip_hmap_align(), fd_dstip_hmap_footprint(  )  )
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -180,14 +190,16 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_netlink_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_netlink_tile_ctx_t), sizeof(fd_netlink_tile_ctx_t) );
   FD_TEST( ctx->magic==FD_NETLINK_TILE_CTX_MAGIC );
-  ctx->netdev_sz    = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
-  ctx->netdev_local = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_sz );
+  ctx->netdev_sz              = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
+  ctx->netdev_local           = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_sz );
 
   FD_TEST( tile->netlink.netdev_dbl_buf_obj_id );
   FD_TEST( tile->netlink.neigh4_obj_id         );
   FD_TEST( tile->netlink.neigh4_ele_obj_id     );
   FD_TEST( tile->netlink.fib4_local_obj_id     );
   FD_TEST( tile->netlink.fib4_main_obj_id      );
+  FD_TEST( tile->netlink.ipfilter_obj_id       );
+  FD_TEST( tile->netlink.ipfilter_ele_obj_id   );
 
   FD_TEST( fd_netdev_tbl_new( ctx->netdev_local, NETDEV_MAX, BOND_MASTER_MAX ) );
   FD_TEST( fd_netdev_tbl_join( ctx->netdev_tbl, ctx->netdev_local ) );
@@ -202,6 +214,14 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     if( FD_UNLIKELY( link->mtu!=0UL ) ) FD_LOG_ERR(( "netlink solicit links must have an MTU of zero" ));
   }
+
+  void * ipfilter_hmap_mem     = fd_topo_obj_laddr( topo, tile->netlink.ipfilter_obj_id     );
+  void * ipfilter_hmap_ele_mem = fd_topo_obj_laddr( topo, tile->netlink.ipfilter_ele_obj_id );
+  FD_TEST( ipfilter_hmap_mem     );
+  FD_TEST( ipfilter_hmap_ele_mem );
+  FD_TEST( fd_ipfilter_hmap_join( ctx->ipfilter_hmap, ipfilter_hmap_mem, ipfilter_hmap_ele_mem ) );
+
+  fd_netlink_get_all_ips( ctx->nl_req, ctx->ipfilter_hmap );
 
   ctx->action |= FD_NET_TILE_ACTION_LINK_UPDATE;
   ctx->action |= FD_NET_TILE_ACTION_ROUTE4_UPDATE;

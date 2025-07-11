@@ -44,14 +44,6 @@ main( int     argc,
   FD_LOG_NOTICE(( "Dumping local and main routing tables to stderr\n" ));
   fd_log_flush();
 
-
-  fd_netlink_get_all_ips( netlink );
-
-  FD_LOG_NOTICE(( "stop" ));
-
-
-
-
   dump_table( netlink, RT_TABLE_LOCAL );
   dump_table( netlink, RT_TABLE_MAIN  );
   fflush( stderr );

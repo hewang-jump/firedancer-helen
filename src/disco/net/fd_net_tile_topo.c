@@ -14,6 +14,7 @@ setup_xdp_tile( fd_topo_t *             topo,
                 fd_topo_tile_t *        netlink_tile,
                 ulong const *           tile_to_cpu,
                 fd_config_net_t const * net_cfg ) {
+  FD_LOG_NOTICE(( "setup_xdp_tile" ));
   fd_topo_tile_t * tile = fd_topob_tile( topo, "net", "net", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
   fd_topob_link( topo, "net_netlnk", "net_netlnk", 128UL, 0UL, 0UL );
   fd_topob_tile_in(  topo, "netlnk", 0UL, "metric_in", "net_netlnk", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
@@ -71,6 +72,8 @@ fd_topos_net_tiles( fd_topo_t *             topo,
                     ulong                   netlnk_max_routes,
                     ulong                   netlnk_max_neighbors,
                     ulong const             tile_to_cpu[ FD_TILE_MAX ] ) {
+  FD_LOG_NOTICE(( "fd_topos_net_tiles" ));
+
   /* net_umem: Packet buffers */
   fd_topob_wksp( topo, "net_umem" );
 

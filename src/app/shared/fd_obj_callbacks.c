@@ -9,6 +9,7 @@
 #include "../../waltz/mib/fd_dbl_buf.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../waltz/ip/fd_fib4.h"
+#include "../../waltz/ip/fd_ipfilter.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 
 #define VAL(name) (__extension__({                                                             \
@@ -249,6 +250,63 @@ fd_topo_obj_callbacks_t fd_obj_cb_fib4 = {
   .footprint = fib4_footprint,
   .align     = fib4_align,
   .new       = fib4_new,
+};
+
+static ulong
+ipfilter_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                    fd_topo_obj_t const * obj  FD_FN_UNUSED) {
+  FD_LOG_NOTICE(( "callback-ipfilter_footprint" ));
+  return fd_ipfilter_hmap_footprint( IPFILTER_HMAP_MAX, IPFILTER_HMAP_LOCK_CNT, IPFILTER_HMAP_MAX );
+}
+
+static ulong
+ipfilter_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  FD_LOG_NOTICE(( "callback-ipfilter_align" ));
+  return fd_ipfilter_hmap_align();
+}
+
+static void
+ipfilter_new( fd_topo_t const *     topo,
+              fd_topo_obj_t const * obj ) {
+  FD_LOG_NOTICE(( "callback-ipfilter_new" ));
+  FD_TEST( fd_ipfilter_hmap_new( fd_topo_obj_laddr( topo, obj->id ), IPFILTER_HMAP_MAX, IPFILTER_HMAP_LOCK_CNT, IPFILTER_HMAP_MAX, IPFILTER_HMAP_SEED ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_ipfilter = {
+  .name      = "ipfltr_hmap",
+  .footprint = ipfilter_footprint,
+  .align     = ipfilter_align,
+  .new       = ipfilter_new,
+};
+
+static ulong
+ipfilter_ele_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                        fd_topo_obj_t const * obj  FD_FN_UNUSED) {
+  FD_LOG_NOTICE(( "callback-ipfilter_ele_footprint" ));
+  return sizeof(fd_ipfilter_hmap_entry_t) * IPFILTER_HMAP_MAX;
+}
+
+static ulong
+ipfilter_ele_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                    fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  FD_LOG_NOTICE(( "callback-ipfilter_ele_align" ));
+  return alignof(fd_ipfilter_hmap_entry_t);
+}
+
+static void
+ipfilter_ele_new( fd_topo_t const *     topo,
+                  fd_topo_obj_t const * obj ) {
+  FD_LOG_NOTICE(( "callback-ipfilter_ele_new" ));
+  fd_memset( fd_topo_obj_laddr( topo, obj->id ), 0, sizeof(fd_ipfilter_hmap_entry_t) * IPFILTER_HMAP_MAX );
+  return;
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_ipfilter_ele = {
+  .name      = "ipfltr_ele",
+  .footprint = ipfilter_ele_footprint,
+  .align     = ipfilter_ele_align,
+  .new       = ipfilter_ele_new,
 };
 
 static ulong

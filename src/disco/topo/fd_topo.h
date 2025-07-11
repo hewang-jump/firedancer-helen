@@ -180,6 +180,8 @@ struct fd_topo_tile {
       char  neigh_if[ 16 ];        /* neigh4 interface name */
       ulong neigh4_obj_id;         /* neigh4 hash map header */
       ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
+      ulong ipfilter_obj_id;       /* ipfilter hash map header */
+      ulong ipfilter_ele_obj_id;   /* ipfilter hash map slots */
     } netlink;
 
     struct {
