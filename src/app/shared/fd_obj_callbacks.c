@@ -9,6 +9,7 @@
 #include "../../waltz/mib/fd_dbl_buf.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../waltz/ip/fd_fib4.h"
+#include "../../waltz/ip/fd_dstipfltr_netlink.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 
 #define VAL(name) (__extension__({                                                             \
@@ -224,6 +225,36 @@ fd_topo_obj_callbacks_t fd_obj_cb_fib4 = {
   .footprint = fib4_footprint,
   .align     = fib4_align,
   .new       = fib4_new,
+};
+
+static ulong
+ipfilter_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                    fd_topo_obj_t const * obj  FD_FN_UNUSED) {
+  ulong hmap_footprint = fd_dstipfltr_hmap_footprint( DSTIPFLTR_HMAP_MAX, DSTIPFLTR_HMAP_LOCK_CNT, DSTIPFLTR_HMAP_MAX );
+  ulong elem_footprint = sizeof(fd_dstipfltr_hmap_entry_t) * DSTIPFLTR_HMAP_MAX;
+  return hmap_footprint + elem_footprint;
+}
+
+static ulong
+ipfilter_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_dstipfltr_hmap_align() ;
+}
+
+static void
+ipfilter_new( fd_topo_t const *     topo,
+              fd_topo_obj_t const * obj ) {
+  void * hmap_mem = fd_topo_obj_laddr( topo, obj->id );
+  void * elem_mem = (void *) ( (ulong)hmap_mem + fd_dstipfltr_hmap_footprint( DSTIPFLTR_HMAP_MAX, DSTIPFLTR_HMAP_LOCK_CNT, DSTIPFLTR_HMAP_MAX ) );
+  FD_TEST( fd_dstipfltr_hmap_new( hmap_mem, DSTIPFLTR_HMAP_MAX, DSTIPFLTR_HMAP_LOCK_CNT, DSTIPFLTR_HMAP_MAX, DSTIPFLTR_HMAP_SEED ) );
+  fd_memset( elem_mem, 0, sizeof(fd_dstipfltr_hmap_entry_t)*DSTIPFLTR_HMAP_MAX );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_ipfilter = {
+  .name      = "ipfilter",
+  .footprint = ipfilter_footprint,
+  .align     = ipfilter_align,
+  .new       = ipfilter_new,
 };
 
 static ulong
