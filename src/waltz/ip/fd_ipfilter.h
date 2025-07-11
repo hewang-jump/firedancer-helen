@@ -1,10 +1,16 @@
-#ifndef HEADER_fd_src_waltz_ip_fd_dstfilter_h
-#define HEADER_fd_src_waltz_ip_fd_dstfilter_h
+#ifndef HEADER_fd_src_waltz_ip_fd_ipfilter_h
+#define HEADER_fd_src_waltz_ip_fd_ipfilter_h
 
 #include "../../util/fd_util_base.h"
 #include "fd_netlink1.h"
 
-/* Allowed destination addresses */
+struct __attribute__((aligned(16))) fd_ipfilter {
+  uint flags; /* IFA_F_PERMENANT, IFA_F_NOPREFIXROUTE */
+  uint scope; /* RT_SCOPE_UNIVERSE, RT_SCOPE_SITE, RT_SCOPE_LINK, RT_SCOPE_HOST */
+};
+typedef struct fd_ipfilter fd_ipfilter_t;
+
+/* Destination IP Filtering */
 
 #define IPFILTER_HMAP_MAX (8192U)
 #define IPFILTER_HMAP_LOCK_CNT (4U)
@@ -18,8 +24,7 @@
 
 struct __attribute__((aligned(16))) fd_ipfilter_hmap_entry {
   uint ip_addr; /* Little endian. All 32 bits defined */
-  uint flags;   /* IFA_F_PERMENANT, IFA_F_NOPREFIXROUTE */
-  uint scope;   /* RT_SCOPE_UNIVERSE, RT_SCOPE_SITE, RT_SCOPE_LINK, RT_SCOPE_HOST */
+  fd_ipfilter_t filter;
 };
 
 typedef struct fd_ipfilter_hmap_entry fd_ipfilter_hmap_entry_t;
@@ -34,6 +39,11 @@ typedef struct fd_ipfilter_hmap_entry fd_ipfilter_hmap_entry_t;
 int
 fd_netlink_get_all_ips( fd_netlink_t * netlink,
                         fd_ipfilter_hmap_t * hmap );
+
+int
+fd_netlink_ipfilter_query( fd_ipfilter_hmap_t * hmap,
+                           uint ipaddr,
+                           fd_ipfilter_t * filter );
 
 
 #endif /* HEADER_fd_src_waltz_ip_fd_dstfilter_h */

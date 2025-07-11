@@ -3,6 +3,31 @@
 #include <sys/socket.h>
 #include <errno.h>
 #include <linux/rtnetlink.h>
+#include "../../util/net/fd_ip4.h"
+
+int
+fd_netlink_ipfilter_query( fd_ipfilter_hmap_t * hmap,
+                           uint ipaddr,
+                           fd_ipfilter_t * filter ) {
+  FD_LOG_NOTICE(( "querying addr " FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( ipaddr )  ));
+  uint key = ipaddr;
+  fd_ipfilter_hmap_query_t query[1];
+  fd_ipfilter_hmap_entry_t sentinel[1];
+  int find_res = fd_ipfilter_hmap_query_try( hmap, &key, sentinel, query, 0 );
+  if( find_res==FD_MAP_SUCCESS ) {
+    fd_ipfilter_hmap_entry_t const * ele = fd_ipfilter_hmap_query_ele_const( query );
+    fd_ipfilter_t fltr = ele->filter;
+    find_res = fd_ipfilter_hmap_query_test( query );
+    if( FD_UNLIKELY( find_res!=FD_MAP_SUCCESS ) ) {
+      FD_LOG_NOTICE(( "found" ));
+      return 0;
+    }
+    fd_memcpy( filter, &fltr, sizeof(fd_ipfilter_t) );
+    return 1;
+  }
+  return 0;
+}
+
 
 int
 fd_netlink_get_all_ips( fd_netlink_t * netlink,
@@ -92,16 +117,17 @@ fd_netlink_get_all_ips( fd_netlink_t * netlink,
     else if ( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_dstfilter_hmap_prepare failed. err: %d", err ));
 
     fd_ipfilter_hmap_entry_t * ele = fd_ipfilter_hmap_query_ele( query );
-    ele->ip_addr                    = local_addrs;
-    ele->flags                      = flags;
-    ele->scope                      = scope;
+    ele->ip_addr                   = local_addrs;
+    ele->filter.flags              = flags;
+    ele->filter.scope              = scope;
 
     fd_ipfilter_hmap_publish( query );
 
-    FD_LOG_NOTICE(( "addrs %x published", local_addrs));
+    FD_LOG_NOTICE(( "addrs " FD_IP4_ADDR_FMT " published", FD_IP4_ADDR_FMT_ARGS( local_addrs ) ));
 
     inserted_ips++;
   }
 
   return inserted_ips;
 }
+

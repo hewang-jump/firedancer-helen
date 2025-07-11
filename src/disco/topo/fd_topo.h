@@ -164,6 +164,8 @@ struct fd_topo_tile {
       ulong fib4_local_obj_id;     /* fib4 containing local route table */
       ulong neigh4_obj_id;         /* neigh4 hash map header */
       ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
+      ulong ipfilter_obj_id;       /* ipfilter hash map header */
+      ulong ipfilter_ele_obj_id;   /* ipfilter hash map slots */
     } xdp;
 
     struct {
