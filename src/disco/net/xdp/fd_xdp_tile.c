@@ -24,6 +24,7 @@
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_gre.h"
+#include "../../../waltz/ip/fd_dstipfltr_netlink.h"
 
 #include <unistd.h>
 #include <linux/if.h> /* struct ifreq */
@@ -231,6 +232,7 @@ typedef struct {
   fd_fib4_t const * fib_main;
   fd_neigh4_hmap_t  neigh4[1];
   fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
+  fd_dstipfltr_hmap_t dstipfltr[1];
 
   /* Netdev table */
   fd_netdev_tbl_join_t netdev_tbl_handle; // handle to the netdev table itself
@@ -896,6 +898,10 @@ net_rx_packet( fd_net_ctx_t * ctx,
       return;
     }
 
+    /* Check if destination ip is allowed */
+    fd_dstipfltr_params_t fltr_params;
+    if( FD_UNLIKELY( !fd_netlink_dstipfltr_check( ctx->dstipfltr, iphdr->daddr, &fltr_params ) ) ) return;
+
     ulong overhead  = FD_IP4_GET_LEN( *iphdr ) + sizeof(fd_gre_hdr_t);
 
     if( FD_UNLIKELY( (uchar *)iphdr+overhead+sizeof(fd_ip4_hdr_t)>packet_end ) ) {
@@ -921,6 +927,10 @@ net_rx_packet( fd_net_ctx_t * ctx,
   /* Filter for UDP/IPv4 packets. */
   if( FD_UNLIKELY( ( FD_IP4_GET_VERSION( *iphdr )!=0x4 ) ||
                    ( iphdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) ) return;
+
+  /* Check if destination ip is allowed */
+  fd_dstipfltr_params_t fltr_params;
+  if( FD_UNLIKELY( !fd_netlink_dstipfltr_check( ctx->dstipfltr, iphdr->daddr, &fltr_params ) ) ) return;
 
   /* IPv4 is variable-length, so lookup IHL to find start of UDP */
   uint iplen        = FD_IP4_GET_LEN( *iphdr );
@@ -1462,6 +1472,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Loop through netdev table to find if GRE interface exists */
   ctx->has_gre_interface = net_check_gre_interface_exists( ctx );
+
+  if( FD_UNLIKELY( !fd_netlink_dstipfltr_join( ctx->dstipfltr, fd_topo_obj_laddr( topo, tile->xdp.ipfilter_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "fd_ipfilter_hmap_join failed" ));
+  }
 
   /* Initialize TX free ring */
 

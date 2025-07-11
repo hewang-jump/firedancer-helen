@@ -4,6 +4,7 @@
 #include "../../waltz/ip/fd_netlink1.h"
 #include "../metrics/generated/fd_metrics_netlnk.h"
 #include "../../waltz/ip/fd_fib4.h"
+#include "../../waltz/ip/fd_dstipfltr_netlink.h"
 #include "../../waltz/mib/fd_dbl_buf.h"
 #include "../../waltz/mib/fd_netdev_tbl.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
@@ -46,11 +47,8 @@ struct fd_netlink_tile_ctx {
   uint             neigh4_ifidx;
   long             idle_cnt;
 
-  /* Allowed destination IPs hmap */
-  ulong dstip_hmap_offset;
-  ulong dstip_hmap_elem_offset;
-  ulong dstip_cnt;
-  ulong dstip_max;
+  /* Destination IP Filtering hmap */
+  fd_dstipfltr_hmap_t dstipfltr_hmap[1];
 
   /* Neighbor table prober */
   fd_neigh4_prober_t prober[1];
@@ -65,30 +63,5 @@ struct fd_netlink_tile_ctx {
 };
 
 typedef struct fd_netlink_tile_ctx fd_netlink_tile_ctx_t;
-
-/* Allowed destination addresses */
-
-#define DSTIP_HMAP_LOCK_CNT (4UL)
-#define DSTIP_HMAP_SEED (654321UL)
-
-#define MAP_NAME fd_dstip_hmap
-#define MAP_ELE_T fd_dstip_hmap_entry_t
-#define MAP_KEY_T uint
-#define MAP_KEY ip_addr
-#define MAP_KEY_HASH(key,seed) fd_uint_hash( (*(key)) ^ ((uint)seed) )
-
-struct __attribute__((aligned(16))) fd_dstip_hmap_entry {
-  uint ip_addr; /* Little endian. All 32 bits defined */
-  uint flags;   /* IFA_F_PERMENANT, IFA_F_NOPREFIXROUTE */
-  uint scope;   /* 	RT_SCOPE_UNIVERSE, RT_SCOPE_SITE, RT_SCOPE_LINK, RT_SCOPE_HOST */
-};
-
-typedef struct fd_dstip_hmap_entry fd_dstip_hmap_entry_t;
-
-// static inline void *  fd_dstip_hmap_mem      ( fd_fib4_t * fib ) { return (void *)( (ulong)fib + fib->hmap_offset      ); }
-// static inline void *  fd_dstip_hmap_ele_mem  ( fd_fib4_t * fib ) { return (void *)( (ulong)fib + fib->hmap_elem_offset ); }
-
-#define MAP_IMPL_STYLE 0
-#include "../../util/tmpl/fd_map_slot_para.c"
 
 #endif /* HEADER_fd_src_disco_netlink_fd_netlink_tile_private_h */

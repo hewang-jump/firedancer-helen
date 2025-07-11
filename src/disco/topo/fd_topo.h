@@ -166,6 +166,7 @@ struct fd_topo_tile {
       ulong fib4_local_obj_id;     /* fib4 containing local route table */
       ulong neigh4_obj_id;         /* neigh4 hash map header */
       ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
+      ulong ipfilter_obj_id;       /* ipfilter: contains dstipfltr hash map */
     } xdp;
 
     struct {
@@ -182,6 +183,7 @@ struct fd_topo_tile {
       char  neigh_if[ 16 ];        /* neigh4 interface name */
       ulong neigh4_obj_id;         /* neigh4 hash map header */
       ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
+      ulong ipfilter_obj_id;       /* ipfilter: contains dstipfltr hash map */
     } netlink;
 
     struct {
