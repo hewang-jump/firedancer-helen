@@ -1,7 +1,9 @@
 #include "fd_netdev_netlink.h"
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_ip4.h"
+#include "fd_addrs_hmap.h"
 #include "fd_netdev_tbl.h"
+#include <errno.h>
 #include <linux/if_link.h>
 
 #if !defined(__linux__)
@@ -50,6 +52,97 @@ ifoper_to_oper_status( uint if_oper ) {
   default:
     return FD_OPER_STATUS_INVALID;
   }
+}
+
+int
+fd_netdev_netlink_load_addrs( fd_netdev_tbl_join_t * tbl,
+                              fd_netlink_t *         netlink ) {
+  FD_LOG_NOTICE(( "fd_netdev_netlink_load_addrs" ));
+  fd_netdev_tbl_hmap_reset( tbl );
+
+  uint seq = netlink->seq++;
+  struct {
+    struct nlmsghdr nlh;  /* Netlink header */
+    struct ifaddrmsg addrmsg;
+  } request;
+  request.nlh = (struct nlmsghdr) {
+    .nlmsg_type  = RTM_GETADDR,
+    .nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP,
+    .nlmsg_len   = sizeof(request),
+    .nlmsg_seq   = seq
+  };
+  request.addrmsg = (struct ifaddrmsg) {
+    .ifa_family = AF_INET, /* IPv4 */
+    .ifa_scope = RT_SCOPE_UNIVERSE
+  };
+
+  long send_res = sendto( netlink->fd, &request, sizeof(request), 0, NULL, 0 );
+
+  if( FD_UNLIKELY( send_res<0 ) ) {
+    FD_LOG_WARNING(( "netlink send(%d,RTM_GETADDR,NLM_F_REQUEST|NLM_F_DUMP) failed (%d-%s)", netlink->fd, errno, fd_io_strerror( errno ) ));
+    return errno;
+  }
+  if( FD_UNLIKELY( send_res!=sizeof(request) ) ) {
+    FD_LOG_WARNING(( "netlink send(%d,RTM_GETADDR,NLM_F_REQUEST|NLM_F_DUMP) failed (short write)", netlink->fd ));
+    return EPIPE;
+  }
+
+  uchar buf[ 4096 ];
+  fd_netlink_iter_t iter[1];
+  for( fd_netlink_iter_init( iter, netlink, buf, sizeof(buf) );
+       !fd_netlink_iter_done( iter );
+       fd_netlink_iter_next( iter, netlink ) ) {
+    struct nlmsghdr const * nlh = fd_netlink_iter_msg( iter );
+    if( FD_UNLIKELY( nlh->nlmsg_flags & NLM_F_DUMP_INTR ) ) FD_LOG_NOTICE(( "dump inconsistent" ));
+    if( FD_UNLIKELY( nlh->nlmsg_type==NLMSG_ERROR ) ) {
+      struct nlmsgerr * err = NLMSG_DATA( nlh );
+      int nl_err = -err->error;
+      FD_LOG_WARNING(( "netlink RTM_GETADDR,NLM_F_REQUEST|NLM_F_DUMP failed (%d-%s)", nl_err, fd_io_strerror( nl_err ) ));
+      return nl_err;
+    }
+    if( FD_UNLIKELY( nlh->nlmsg_type!=RTM_NEWADDR ) ) {
+      FD_LOG_DEBUG(( "unexpected nlmsg_type %u", nlh->nlmsg_type ));
+      continue;
+    }
+
+
+    struct ifaddrmsg * msg = NLMSG_DATA( nlh ) ;
+    struct rtattr    * rat = IFA_RTA( msg );
+    ulong rat_sz           = IFA_PAYLOAD( nlh );
+
+    FD_LOG_HEXDUMP_NOTICE(( "rat", rat, rat_sz ));
+
+    uint flags = 0;
+    uint local_addrs = UINT_MAX;
+    uint scope = msg->ifa_scope;
+
+    for(; RTA_OK( rat, rat_sz ); rat=RTA_NEXT( rat, rat_sz ) ) {
+      void * rta   = RTA_DATA( rat );
+      switch( rat->rta_type ) {   // nla_type
+      case IFA_LOCAL: {
+        local_addrs = FD_LOAD( uint, rta );
+        break;
+      }
+      case IFA_FLAGS: {
+        uint ifa_flags = FD_LOAD( uint, rta );
+        if( !((ifa_flags & IFA_F_PERMANENT) || (ifa_flags & IFA_F_NOPREFIXROUTE))  ) continue;
+        flags = ifa_flags;
+        FD_LOG_NOTICE(( "flags: %u", flags ));
+        break;
+      }
+      }
+    }
+    if( local_addrs==UINT_MAX ) continue;
+    if( FD_UNLIKELY( tbl->hdr->addrs_cnt >= tbl->hdr->addrs_max) ) return ENOSPC; // no space
+
+    fd_addrs_fltr_attrs_t fltr_attrs;
+    fltr_attrs.flags = flags;
+    fltr_attrs.scope = scope;
+    if( FD_UNLIKELY( !fd_addrs_hmap_insert( tbl->addrs_hmap, local_addrs, &fltr_attrs ) ) ) return ENOSPC;
+    tbl->hdr->addrs_cnt++;
+  }
+
+  return 0;
 }
 
 int

@@ -4,7 +4,6 @@
 #include "../../waltz/ip/fd_netlink1.h"
 #include "../metrics/generated/fd_metrics_netlnk.h"
 #include "../../waltz/ip/fd_fib4.h"
-#include "../../waltz/ip/fd_dstipfltr_netlink.h"
 #include "../../waltz/mib/fd_dbl_buf.h"
 #include "../../waltz/mib/fd_netdev_tbl.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
@@ -23,14 +22,16 @@ struct fd_netlink_tile_ctx {
 
   /* Pending actions */
   ulong action;
-# define FD_NET_TILE_ACTION_ROUTE4_UPDATE (1UL<<0)
-# define FD_NET_TILE_ACTION_LINK_UPDATE   (1UL<<1)
-# define FD_NET_TILE_ACTION_NEIGH_UPDATE  (1UL<<2)
+# define FD_NET_TILE_ACTION_ROUTE4_UPDATE  (1UL<<0)
+# define FD_NET_TILE_ACTION_LINK_UPDATE    (1UL<<1)
+# define FD_NET_TILE_ACTION_NEIGH_UPDATE   (1UL<<2)
+# define FD_NET_TILE_ACTION_ADDRESS_UPDATE (1UL<<3)
 
   /* Rate limit link and route table changes (in ticks) */
   long update_backoff;
   long route4_update_ts;
   long link_update_ts;
+  long address_update_ts;
 
   /* Link table */
   void *               netdev_local;  /* local mutable table */
@@ -47,15 +48,13 @@ struct fd_netlink_tile_ctx {
   uint             neigh4_ifidx;
   long             idle_cnt;
 
-  /* Destination IP Filtering hmap */
-  fd_dstipfltr_hmap_t dstipfltr_hmap[1];
-
   /* Neighbor table prober */
   fd_neigh4_prober_t prober[1];
 
   struct {
     ulong link_full_syncs;
     ulong route_full_syncs;
+    ulong address_full_syncs;
     ulong update_cnt[ FD_METRICS_COUNTER_NETLNK_UPDATES_CNT ];
     ulong neigh_solicits_sent;
     ulong neigh_solicits_fails;

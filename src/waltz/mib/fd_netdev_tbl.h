@@ -5,6 +5,7 @@
    The entrypoint of this API is fd_netlink_tbl_t. */
 
 #include "../../util/fd_util_base.h"
+#include "fd_addrs_hmap.h"
 
 /* FD_OPER_STATUS_* give the operational state of a network interface.
    See RFC 2863 Section 3.1.14: https://datatracker.ietf.org/doc/html/rfc2863#section-3.1.14 */
@@ -63,6 +64,11 @@ struct fd_netdev_tbl_hdr {
   ushort bond_max;
   ushort dev_cnt;
   ushort bond_cnt;
+  void * addrs_mem;
+  void * addrs_ele_mem;
+  ulong  addrs_max;
+  ulong  addrs_cnt;
+  ulong  addrs_lock_cnt;
 };
 typedef struct fd_netdev_tbl_hdr fd_netdev_tbl_hdr_t;
 
@@ -70,6 +76,7 @@ struct fd_netdev_tbl_join {
   fd_netdev_tbl_hdr_t * hdr;
   fd_netdev_t *         dev_tbl;
   fd_netdev_bond_t *    bond_tbl;
+  fd_addrs_hmap_t       addrs_hmap[1];    // join handle to fd_addrs_hmap
 };
 typedef struct fd_netdev_tbl_join fd_netdev_tbl_join_t;
 
@@ -97,17 +104,23 @@ fd_netdev_tbl_footprint( ulong dev_max,
 
 void *
 fd_netdev_tbl_new( void * shmem,
+                   void * shhmap,
+                   void * shhmap_ele,
                    ulong  dev_max,
-                   ulong  bond_max );
+                   ulong  bond_max,
+                   ulong  hmap_max,
+                   ulong  addrs_lock_cnt );
 
-/* fd_netdev_tbl_join joins a netdev_tbl at shtbl.  ljoin points to a
+/* fd_netdev_tbl_join joins a netdev_tbl at shtbl and shhmap. ljoin points to a
    fd_netdev_tbl_join_t[1] to which object information is written to.
    Returns ljoin on success.  On failure, returns NULL and logs reason for
    failure. */
 
 fd_netdev_tbl_join_t *
 fd_netdev_tbl_join( void * ljoin,
-                    void * shtbl );
+                    void * shtbl,
+                    void * shhmap,
+                    void * shhmap_ele );
 
 /* fd_netdev_tbl_leave undoes a fd_netdev_tbl_join.  Returns ownership
    of the region backing join to the caller.  (Warning: This returns ljoin,
@@ -127,6 +140,13 @@ fd_netdev_tbl_delete( void * shtbl );
 
 void
 fd_netdev_tbl_reset( fd_netdev_tbl_join_t * tbl );
+
+/* fd_netdev_tbl_hmap_reset resets the address hmap inside the netdev table to
+   the state of a newly constructed empty object (clears all inserted entries).
+   Assume tbl contains a valid join to the hmap. This operation is blocking */
+
+void
+fd_netdev_tbl_hmap_reset( fd_netdev_tbl_join_t * tbl );
 
 #if FD_HAS_HOSTED
 

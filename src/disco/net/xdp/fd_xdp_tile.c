@@ -24,7 +24,7 @@
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_gre.h"
-#include "../../../waltz/ip/fd_dstipfltr_netlink.h"
+#include "../../../waltz/mib/fd_addrs_hmap.h"
 
 #include <unistd.h>
 #include <linux/if.h> /* struct ifreq */
@@ -232,12 +232,13 @@ typedef struct {
   fd_fib4_t const * fib_main;
   fd_neigh4_hmap_t  neigh4[1];
   fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
-  fd_dstipfltr_hmap_t dstipfltr[1];
 
   /* Netdev table */
   fd_netdev_tbl_join_t netdev_tbl_handle; // handle to the netdev table itself
   fd_dbl_buf_t       * netdev_dbl_handle; // handle to the double buffer
   uchar              * netdev_buf;        // local buf to copy in the netdev table
+  uchar              * netdev_hmap;       // global buffer for netdev hash map
+  uchar              * netdev_hmap_ele;   // global buffer for netdev hash map elements
   ulong                netdev_buf_sz;     // size of netdev_buf above
   int                  has_gre_interface; // netdev table has a GRE interface entry
 
@@ -377,7 +378,7 @@ net_load_netdev_tbl( fd_net_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_dbl_buf_read( ctx->netdev_dbl_handle, ctx->netdev_buf_sz, ctx->netdev_buf, NULL ) ) )  FD_LOG_ERR(("netdev table load failed"));
 
   /* Recalculate the join handler to netdeb buf */
-  if( FD_UNLIKELY( !fd_netdev_tbl_join( &ctx->netdev_tbl_handle, ctx->netdev_buf ) ) ) FD_LOG_ERR(("netdev table join failed"));
+  if( FD_UNLIKELY( !fd_netdev_tbl_join( &ctx->netdev_tbl_handle, ctx->netdev_buf, ctx->netdev_hmap, ctx->netdev_hmap_ele ) ) ) FD_LOG_ERR(("netdev table join failed"));
 }
 
 /* Query the netdev table. Return a fd_netdev_t pointer to the net device of the
@@ -899,8 +900,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
     }
 
     /* Check if destination ip is allowed */
-    fd_dstipfltr_params_t fltr_params;
-    if( FD_UNLIKELY( !fd_netlink_dstipfltr_check( ctx->dstipfltr, iphdr->daddr, &fltr_params ) ) ) return;
+    fd_addrs_fltr_attrs_t fltr_attrs;
+    if( FD_UNLIKELY( !fd_addrs_hmap_find( ctx->netdev_tbl_handle.addrs_hmap, iphdr->daddr, &fltr_attrs ) ) ) return;
 
     ulong overhead  = FD_IP4_GET_LEN( *iphdr ) + sizeof(fd_gre_hdr_t);
 
@@ -929,8 +930,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
                    ( iphdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) ) return;
 
   /* Check if destination ip is allowed */
-  fd_dstipfltr_params_t fltr_params;
-  if( FD_UNLIKELY( !fd_netlink_dstipfltr_check( ctx->dstipfltr, iphdr->daddr, &fltr_params ) ) ) return;
+    fd_addrs_fltr_attrs_t fltr_attrs;
+    if( FD_UNLIKELY( !fd_addrs_hmap_find( ctx->netdev_tbl_handle.addrs_hmap, iphdr->daddr, &fltr_attrs ) ) ) return;
 
   /* IPv4 is variable-length, so lookup IHL to find start of UDP */
   uint iplen        = FD_IP4_GET_LEN( *iphdr );
@@ -1463,6 +1464,10 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /* Allocate and join netdev buffer */
+  ctx->netdev_hmap             = fd_topo_obj_laddr( topo, tile->xdp.netdev_hmap_obj_id );
+  ctx->netdev_hmap_ele         = fd_topo_obj_laddr( topo, tile->xdp.netdev_hmap_ele_obj_id );
+  FD_TEST( ctx->netdev_hmap     );
+  FD_TEST( ctx->netdev_hmap_ele );
   ctx->netdev_dbl_handle       = fd_dbl_buf_join( fd_topo_obj_laddr( topo, tile->xdp.netdev_dbl_buf_obj_id ) );
   if( FD_UNLIKELY( ctx->netdev_dbl_handle==NULL ) ) FD_LOG_ERR(( "fd_dbl_buf_join failed" ))  ;
   ctx->netdev_buf_sz           = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
@@ -1472,10 +1477,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Loop through netdev table to find if GRE interface exists */
   ctx->has_gre_interface = net_check_gre_interface_exists( ctx );
-
-  if( FD_UNLIKELY( !fd_netlink_dstipfltr_join( ctx->dstipfltr, fd_topo_obj_laddr( topo, tile->xdp.ipfilter_obj_id ) ) ) ) {
-    FD_LOG_ERR(( "fd_ipfilter_hmap_join failed" ));
-  }
 
   /* Initialize TX free ring */
 

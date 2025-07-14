@@ -822,6 +822,7 @@ metric introduced.
     <int value="0" name="Link" label="Link" />
     <int value="1" name="Neigh" label="Neighbor Table Entry" />
     <int value="2" name="Ipv4Route" label="IPv4 Route Table Entry" />
+    <int value="3" name="Address" label="Address" />
     <!-- <int value="3" name="Ipv4Rule" label="IPv4 Routing Rule" /> -->
 </enum>
 
@@ -835,6 +836,7 @@ metric introduced.
     <counter name="DropEvents" summary="Number of netlink drop events caught" />
     <counter name="LinkFullSyncs" summary="Number of full link table syncs done" />
     <counter name="RouteFullSyncs" summary="Number of full route table syncs done" />
+    <counter name="AddressFullSyncs" summary="Number of full address hash map syncs done" />
     <counter name="Updates" enum="NetlinkMsg" summary="Number of netlink live updates processed" />
     <gauge name="InterfaceCount" summary="Number of network interfaces" />
     <gauge name="RouteCount" enum="RouteTable" summary="Number of IPv4 routes" />
