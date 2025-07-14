@@ -181,6 +181,7 @@ struct fd_topo_tile {
       ulong netdev_dbl_buf_obj_id;  /* dbl_buf containing netdev_tbl */
       ulong netdev_hmap_obj_id;     /* netdev address hash map header */
       ulong netdev_hmap_ele_obj_id; /* netdev address hash map slots */
+      ulong netdev_hmap_max;        /* netdev address hash map max entries */
       ulong fib4_main_obj_id;       /* fib4 containing main route table */
       ulong fib4_local_obj_id;      /* fib4 containing local route table */
       char  neigh_if[ 16 ];         /* neigh4 interface name */

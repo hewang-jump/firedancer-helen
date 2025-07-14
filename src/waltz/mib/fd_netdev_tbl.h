@@ -68,6 +68,7 @@ struct fd_netdev_tbl_hdr {
   void * addrs_ele_mem;
   ulong  addrs_max;
   ulong  addrs_cnt;
+  ulong  addrs_seed;
   ulong  addrs_lock_cnt;
 };
 typedef struct fd_netdev_tbl_hdr fd_netdev_tbl_hdr_t;
@@ -99,8 +100,8 @@ fd_netdev_tbl_footprint( ulong dev_max,
                          ulong bond_max );
 
 /* fd_netdev_tbl_new formats a memory region as an empty netdev_tbl.
-   Returns shmem on success.  On failure returns NULL and logs reason for
-   failure. */
+   Returns shmem on success. Assume the shhmap and shhmap_ele have been
+   properly initialized. On failure returns NULL and logs reason for failure. */
 
 void *
 fd_netdev_tbl_new( void * shmem,
@@ -108,12 +109,12 @@ fd_netdev_tbl_new( void * shmem,
                    void * shhmap_ele,
                    ulong  dev_max,
                    ulong  bond_max,
-                   ulong  hmap_max,
-                   ulong  addrs_lock_cnt );
+                   ulong  hmap_max );
 
 /* fd_netdev_tbl_join joins a netdev_tbl at shtbl and shhmap. ljoin points to a
    fd_netdev_tbl_join_t[1] to which object information is written to.
-   Returns ljoin on success.  On failure, returns NULL and logs reason for
+   Returns ljoin on success. Assume the shhmap and shhmap_ele have been
+   properly initialized. On failure, returns NULL and logs reason for
    failure. */
 
 fd_netdev_tbl_join_t *

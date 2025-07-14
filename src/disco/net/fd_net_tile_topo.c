@@ -73,6 +73,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
                     ulong                   netlnk_max_routes,
                     ulong                   netlnk_max_peer_routes,
                     ulong                   netlnk_max_neighbors,
+                    ulong                   netlnk_max_addrs,
                     ulong const             tile_to_cpu[ FD_TILE_MAX ] ) {
 
   /* net_umem: Packet buffers */
@@ -92,7 +93,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     fd_topob_wksp( topo, "net_netlnk" );
 
     fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-    fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );
+    fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, netlnk_max_addrs, net_cfg->interface );
 
     for( ulong i=0UL; i<net_tile_cnt; i++ ) {
       setup_xdp_tile( topo, i, netlink_tile, tile_to_cpu, net_cfg );

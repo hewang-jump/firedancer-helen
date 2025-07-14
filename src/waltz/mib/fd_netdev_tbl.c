@@ -32,8 +32,7 @@ fd_netdev_tbl_new( void * shmem,
                    void * hmap_ele_shmem,
                    ulong  dev_max,
                    ulong  bond_max,
-                   ulong  addrs_max,
-                   ulong  addrs_lock_cnt ) {
+                   ulong  addrs_max ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -73,15 +72,13 @@ fd_netdev_tbl_new( void * shmem,
       .addrs_mem      = hmap_shmem,
       .addrs_ele_mem  = hmap_ele_shmem,
       .addrs_max      = addrs_max,
-      .addrs_cnt      = 0UL,
+      .addrs_cnt      = 0UL
     }
   };
 
   fd_netdev_tbl_join_t join[1];
-  FD_TEST( fd_addrs_hmap_new( hmap_shmem, addrs_max, addrs_lock_cnt, addrs_max, 123456UL ) );
   fd_netdev_tbl_join( join, shmem, hmap_shmem, hmap_ele_shmem );
   fd_netdev_tbl_reset( join );
-  fd_netdev_tbl_hmap_reset( join );
   fd_netdev_tbl_leave( join );
 
   return tbl;

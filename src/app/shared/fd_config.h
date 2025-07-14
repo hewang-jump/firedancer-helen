@@ -333,6 +333,7 @@ struct fd_config {
       ulong max_routes;
       ulong max_peer_routes;
       ulong max_neighbors;
+      ulong max_addrs;
     } netlink;
 
     struct {

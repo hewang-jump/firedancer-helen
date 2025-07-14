@@ -876,6 +876,10 @@ user = ""
         # up to 256 neighbors (2^(32-24)).
         max_neighbors = 4096
 
+        # The maximum number of allowed destination addresses for incoming
+        # packets.
+        max_addrs = 4096
+
     # QUIC tiles are responsible for serving network traffic, including
     # parsing and responding to packets and managing connection timeouts
     # and state machines.  These tiles implement the QUIC protocol,
