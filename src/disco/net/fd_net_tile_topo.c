@@ -37,11 +37,12 @@ setup_xdp_tile( fd_topo_t *             topo,
 
   tile->xdp.net.umem_dcache_obj_id = umem_obj->id;
   tile->xdp.netdev_dbl_buf_obj_id  = netlink_tile->netlink.netdev_dbl_buf_obj_id;
+  tile->xdp.netdev_hmap_obj_id     = netlink_tile->netlink.netdev_hmap_obj_id;
+  tile->xdp.netdev_hmap_ele_obj_id = netlink_tile->netlink.netdev_hmap_ele_obj_id;
   tile->xdp.fib4_main_obj_id       = netlink_tile->netlink.fib4_main_obj_id;
   tile->xdp.fib4_local_obj_id      = netlink_tile->netlink.fib4_local_obj_id;
   tile->xdp.neigh4_obj_id          = netlink_tile->netlink.neigh4_obj_id;
   tile->xdp.neigh4_ele_obj_id      = netlink_tile->netlink.neigh4_ele_obj_id;
-  tile->xdp.ipfilter_obj_id        = netlink_tile->netlink.ipfilter_obj_id;
 
   /* Allocate free ring */
 

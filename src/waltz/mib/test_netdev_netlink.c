@@ -33,10 +33,18 @@ main( int     argc,
   void * tbl_mem = fd_wksp_alloc_laddr( wksp, fd_netdev_tbl_align(), tbl_fp, 1UL );
   FD_TEST( tbl_mem );
 
-  FD_TEST( fd_netdev_tbl_new( tbl_mem, dev_cnt, bond_cnt )==tbl_mem );
-  fd_netdev_tbl_join_t tbl[1];
-  FD_TEST( fd_netdev_tbl_join( tbl, tbl_mem )==tbl );
+  ulong hmap_max = 16UL;
+  ulong hmap_lock_cnt = 2UL;
+  ulong hmap_footprint = fd_addrs_hmap_footprint( hmap_max, hmap_lock_cnt, hmap_max );
+  FD_TEST( hmap_footprint );
+  void * hmap_mem = fd_wksp_alloc_laddr( wksp, fd_addrs_hmap_align(), hmap_footprint, 1UL );
+  FD_TEST( hmap_mem );
+  void * hmap_ele_mem = fd_wksp_alloc_laddr( wksp, alignof(fd_addrs_hmap_entry_t), hmap_max*sizeof(fd_addrs_hmap_entry_t), 1UL );
+  FD_TEST( hmap_ele_mem );
 
+  FD_TEST( fd_netdev_tbl_new( tbl_mem, hmap_mem, hmap_ele_mem, dev_cnt, bond_cnt, hmap_max, hmap_lock_cnt )==tbl_mem );
+  fd_netdev_tbl_join_t tbl[1];
+  FD_TEST( fd_netdev_tbl_join( tbl, tbl_mem, hmap_mem, hmap_ele_mem )==tbl );
   fd_netlink_t _netlink[1];
   fd_netlink_t * netlink = fd_netlink_init( _netlink, 42U );
   FD_TEST( netlink );
@@ -45,6 +53,11 @@ main( int     argc,
   if( FD_UNLIKELY( ld_err ) ) {
     FD_LOG_WARNING(( "Failed to load interfaces (error code %i)", ld_err ));
   }
+  ld_err = fd_netdev_netlink_load_addrs( tbl, netlink);
+  if( FD_UNLIKELY( ld_err ) ) {
+    FD_LOG_WARNING(( "Failed to load addresses (error code %i)", ld_err ));
+  }
+
   FD_LOG_NOTICE(( "Dumping interface table" ));
   fd_log_flush();
   fd_netdev_tbl_fprintf( tbl, stderr );

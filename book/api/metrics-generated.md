@@ -653,9 +653,11 @@
 | <span class="metrics-name">netlnk_&#8203;drop_&#8203;events</span> | counter | Number of netlink drop events caught |
 | <span class="metrics-name">netlnk_&#8203;link_&#8203;full_&#8203;syncs</span> | counter | Number of full link table syncs done |
 | <span class="metrics-name">netlnk_&#8203;route_&#8203;full_&#8203;syncs</span> | counter | Number of full route table syncs done |
+| <span class="metrics-name">netlnk_&#8203;address_&#8203;full_&#8203;syncs</span> | counter | Number of full address hash map syncs done |
 | <span class="metrics-name">netlnk_&#8203;updates</span><br/>{netlink_&#8203;msg="<span class="metrics-enum">link</span>"} | counter | Number of netlink live updates processed (Link) |
 | <span class="metrics-name">netlnk_&#8203;updates</span><br/>{netlink_&#8203;msg="<span class="metrics-enum">neigh</span>"} | counter | Number of netlink live updates processed (Neighbor Table Entry) |
 | <span class="metrics-name">netlnk_&#8203;updates</span><br/>{netlink_&#8203;msg="<span class="metrics-enum">ipv4_&#8203;route</span>"} | counter | Number of netlink live updates processed (IPv4 Route Table Entry) |
+| <span class="metrics-name">netlnk_&#8203;updates</span><br/>{netlink_&#8203;msg="<span class="metrics-enum">address</span>"} | counter | Number of netlink live updates processed (Address) |
 | <span class="metrics-name">netlnk_&#8203;interface_&#8203;count</span> | gauge | Number of network interfaces |
 | <span class="metrics-name">netlnk_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">local</span>"} | gauge | Number of IPv4 routes (Local) |
 | <span class="metrics-name">netlnk_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">main</span>"} | gauge | Number of IPv4 routes (Main) |

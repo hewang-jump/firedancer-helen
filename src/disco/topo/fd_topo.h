@@ -161,12 +161,13 @@ struct fd_topo_tile {
       char   xdp_mode[8];
       int    zero_copy;
 
-      ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
-      ulong fib4_main_obj_id;      /* fib4 containing main route table */
-      ulong fib4_local_obj_id;     /* fib4 containing local route table */
-      ulong neigh4_obj_id;         /* neigh4 hash map header */
-      ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
-      ulong ipfilter_obj_id;       /* ipfilter: contains dstipfltr hash map */
+      ulong netdev_dbl_buf_obj_id;  /* dbl_buf containing netdev_tbl */
+      ulong netdev_hmap_obj_id;     /* netdev hash map header */
+      ulong netdev_hmap_ele_obj_id; /* netdev hashmap slots */
+      ulong fib4_main_obj_id;       /* fib4 containing main route table */
+      ulong fib4_local_obj_id;      /* fib4 containing local route table */
+      ulong neigh4_obj_id;          /* neigh4 hash map header */
+      ulong neigh4_ele_obj_id;      /* neigh4 hash map slots */
     } xdp;
 
     struct {
@@ -177,13 +178,14 @@ struct fd_topo_tile {
     } sock;
 
     struct {
-      ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
-      ulong fib4_main_obj_id;      /* fib4 containing main route table */
-      ulong fib4_local_obj_id;     /* fib4 containing local route table */
-      char  neigh_if[ 16 ];        /* neigh4 interface name */
-      ulong neigh4_obj_id;         /* neigh4 hash map header */
-      ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
-      ulong ipfilter_obj_id;       /* ipfilter: contains dstipfltr hash map */
+      ulong netdev_dbl_buf_obj_id;  /* dbl_buf containing netdev_tbl */
+      ulong netdev_hmap_obj_id;     /* netdev address hash map header */
+      ulong netdev_hmap_ele_obj_id; /* netdev address hash map slots */
+      ulong fib4_main_obj_id;       /* fib4 containing main route table */
+      ulong fib4_local_obj_id;      /* fib4 containing local route table */
+      char  neigh_if[ 16 ];         /* neigh4 interface name */
+      ulong neigh4_obj_id;          /* neigh4 hash map header */
+      ulong neigh4_ele_obj_id;      /* neigh4 hash map slots */
     } netlink;
 
     struct {
