@@ -180,20 +180,28 @@ fd_topo_obj_callbacks_t fd_obj_cb_dbl_buf = {
 static ulong
 netdev_hmap_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
                        fd_topo_obj_t const * obj  FD_FN_UNUSED) {
-  return fd_addrs_hmap_footprint( 256UL, 16UL, 256UL );
+  ulong addrs_max = VAL("addrs_max");
+  ulong ele_max   = fd_addrs_hmap_get_ele_max( addrs_max );
+  ulong probe_max = fd_addrs_hmap_get_probe_max( ele_max );
+  ulong lock_cnt  = fd_addrs_hmap_get_lock_cnt( ele_max );
+  return fd_addrs_hmap_footprint( ele_max, lock_cnt, probe_max );
 }
 
 static ulong
 netdev_hmap_align( fd_topo_t const *     topo FD_FN_UNUSED,
-                fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+                   fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
   return fd_addrs_hmap_align() ;
 }
 
 static void
 netdev_hmap_new( fd_topo_t const *     topo,
-              fd_topo_obj_t const * obj ) {
+                 fd_topo_obj_t const * obj ) {
   void * hmap_mem = fd_topo_obj_laddr( topo, obj->id );
-  FD_TEST( fd_addrs_hmap_new( hmap_mem, 256UL, 16UL, 256UL, 123456UL ) );
+  ulong addrs_max = VAL("addrs_max");
+  ulong ele_max   = fd_addrs_hmap_get_ele_max( addrs_max );
+  ulong probe_max = fd_addrs_hmap_get_probe_max( ele_max );
+  ulong lock_cnt  = fd_addrs_hmap_get_lock_cnt( ele_max );
+  FD_TEST( fd_addrs_hmap_new( hmap_mem, ele_max, lock_cnt, probe_max, VAL("seed") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_netdev_hmap = {
@@ -204,28 +212,32 @@ fd_topo_obj_callbacks_t fd_obj_cb_netdev_hmap = {
 };
 
 static ulong
-netdev_hmap_opaque_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
-                           fd_topo_obj_t const * obj  FD_FN_UNUSED) {
-  return sizeof(fd_addrs_hmap_entry_t) * 256UL;;
+netdev_opaque_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                              fd_topo_obj_t const * obj  FD_FN_UNUSED) {
+  ulong addrs_max = VAL("addrs_max");
+  ulong ele_max   = fd_addrs_hmap_get_ele_max( addrs_max );
+  return sizeof(fd_addrs_hmap_entry_t) * ele_max;
 }
 
 static ulong
-netdev_hmap_opaque_align( fd_topo_t const *     topo FD_FN_UNUSED,
-                fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+netdev_opaque_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                          fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
   return alignof(fd_addrs_hmap_entry_t);
 }
 
 static void
-netdev_hmap_opaque_new( fd_topo_t const *     topo,
-              fd_topo_obj_t const * obj ) {
-  fd_memset( fd_topo_obj_laddr( topo, obj->id ), 0, sizeof(fd_addrs_hmap_entry_t)*256UL );
+netdev_opaque_new( fd_topo_t const *     topo,
+                        fd_topo_obj_t const * obj ) {
+  ulong addrs_max = VAL("addrs_max");
+  ulong ele_max   = fd_addrs_hmap_get_ele_max( addrs_max );
+  fd_memset( fd_topo_obj_laddr( topo, obj->id ), 0, sizeof(fd_addrs_hmap_entry_t)*ele_max );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_netdev_opaque = {
   .name      = "netdev_opq",
-  .footprint = netdev_hmap_opaque_footprint,
-  .align     = netdev_hmap_opaque_align,
-  .new       = netdev_hmap_opaque_new,
+  .footprint = netdev_opaque_footprint,
+  .align     = netdev_opaque_align,
+  .new       = netdev_opaque_new,
 };
 
 static ulong

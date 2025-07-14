@@ -38,6 +38,7 @@ netconf_cmd_fn( args_t *   args,
   fd_netdev_tbl_join_t netdev[1];
   void * addrs_hmap_mem = aligned_alloc( fd_addrs_hmap_align(), fd_addrs_hmap_footprint( 256UL, 16UL, 256UL ) );
   void * addrs_hmap_ele_mem = aligned_alloc( alignof(fd_addrs_hmap_entry_t), sizeof(fd_addrs_hmap_entry_t) * 256UL );
+  fd_addrs_hmap_new( addrs_hmap_mem, 256UL, 16UL, 256UL, 123456UL );
   FD_TEST( fd_netdev_tbl_join( netdev, netdev_copy, addrs_hmap_mem, addrs_hmap_ele_mem ) );
   fd_netdev_tbl_fprintf( netdev, stdout );
   fd_netdev_tbl_leave( netdev );

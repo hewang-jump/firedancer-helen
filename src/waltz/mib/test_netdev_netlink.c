@@ -42,7 +42,9 @@ main( int     argc,
   void * hmap_ele_mem = fd_wksp_alloc_laddr( wksp, alignof(fd_addrs_hmap_entry_t), hmap_max*sizeof(fd_addrs_hmap_entry_t), 1UL );
   FD_TEST( hmap_ele_mem );
 
-  FD_TEST( fd_netdev_tbl_new( tbl_mem, hmap_mem, hmap_ele_mem, dev_cnt, bond_cnt, hmap_max, hmap_lock_cnt )==tbl_mem );
+  FD_TEST( fd_addrs_hmap_new( hmap_mem, hmap_max, hmap_lock_cnt, hmap_max, 123456UL ) );
+  fd_memset( hmap_ele_mem, 0, hmap_max*sizeof(fd_addrs_hmap_entry_t) );
+  FD_TEST( fd_netdev_tbl_new( tbl_mem, hmap_mem, hmap_ele_mem, dev_cnt, bond_cnt, hmap_max )==tbl_mem );
   fd_netdev_tbl_join_t tbl[1];
   FD_TEST( fd_netdev_tbl_join( tbl, tbl_mem, hmap_mem, hmap_ele_mem )==tbl );
   fd_netlink_t _netlink[1];

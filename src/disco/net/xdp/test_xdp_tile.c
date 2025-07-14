@@ -145,10 +145,10 @@ main( int     argc,
   topo_tile->xdp.netdev_dbl_buf_obj_id     = topo_netdev_dbl_buf_obj->id;
 
 
-  /* Ip filter hashmap setup */
-  ulong addrs_hmap_max = 32UL;
+  /* IP address hashmap setup */
+  ulong addrs_max = 32UL;
   ulong addrs_lock_cnt = 4UL;
-  ulong addrs_hmap_footprint = fd_addrs_hmap_footprint( addrs_hmap_max, addrs_lock_cnt, addrs_hmap_max );
+  ulong addrs_hmap_footprint = fd_addrs_hmap_footprint( addrs_max, addrs_lock_cnt, addrs_max );
   fd_topo_obj_t * addrs_hmap_obj = fd_topob_obj( topo, "addrs_hmap", "wksp" );
   void * addrs_hmap_mem = fd_wksp_alloc_laddr( wksp, fd_addrs_hmap_align(), addrs_hmap_footprint, WKSP_TAG );
   FD_TEST( addrs_hmap_mem );
@@ -157,7 +157,7 @@ main( int     argc,
   FD_TEST( fd_topo_obj_laddr( topo, addrs_hmap_obj->id )==addrs_hmap_mem );
   topo_tile->xdp.netdev_hmap_obj_id  = addrs_hmap_obj->id;
 
-  void * addrs_hmap_ele_mem = fd_wksp_alloc_laddr( wksp, alignof(fd_addrs_hmap_entry_t), addrs_hmap_max*sizeof(fd_addrs_hmap_entry_t), WKSP_TAG );
+  void * addrs_hmap_ele_mem = fd_wksp_alloc_laddr( wksp, alignof(fd_addrs_hmap_entry_t), addrs_max*sizeof(fd_addrs_hmap_entry_t), WKSP_TAG );
   fd_topo_obj_t * addrs_hmap_ele_obj = fd_topob_obj( topo, "addrs_ele", "wksp" );
   FD_TEST( addrs_hmap_ele_mem );
   topo->workspaces[ addrs_hmap_ele_obj->wksp_id ].wksp = wksp;
@@ -344,7 +344,8 @@ main( int     argc,
   ctx->netdev_buf        = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_buf_sz );
   ctx->netdev_hmap       = addrs_hmap_mem;
   ctx->netdev_hmap_ele   = addrs_hmap_ele_mem;
-  FD_TEST( fd_netdev_tbl_new( ctx->netdev_buf, ctx->netdev_hmap, ctx->netdev_hmap_ele, NETDEV_MAX, BOND_MASTER_MAX, addrs_hmap_max, addrs_lock_cnt )==ctx->netdev_buf );
+  FD_TEST( fd_addrs_hmap_new( ctx->netdev_hmap, addrs_max, addrs_lock_cnt, addrs_max, 123456UL ) );
+  FD_TEST( fd_netdev_tbl_new( ctx->netdev_buf, ctx->netdev_hmap, ctx->netdev_hmap_ele, NETDEV_MAX, BOND_MASTER_MAX, addrs_max )==ctx->netdev_buf );
   FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl_handle, ctx->netdev_buf, ctx->netdev_hmap, ctx->netdev_hmap_ele ) );
   /* GRE interface */
   ctx->netdev_tbl_handle.dev_tbl[IF_IDX_GRE] = (fd_netdev_t) {
@@ -375,7 +376,7 @@ main( int     argc,
   /* netdev addrs hashmap */
   fd_netlink_t netlink;
   fd_netlink_init( &netlink, 0 );
-  FD_TEST( fd_netdev_netlink_load_addrs( &ctx->netdev_tbl_handle, &netlink  ) ) ;
+  FD_TEST( !fd_netdev_netlink_load_addrs( &ctx->netdev_tbl_handle, &netlink  ) ) ;
 
   /* ctx->in*/
   rx_link->dcache = umem_frame0;

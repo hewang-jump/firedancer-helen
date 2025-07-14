@@ -25,6 +25,7 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
                         fd_topo_t *      topo,
                         ulong            netlnk_max_routes,
                         ulong            netlnk_max_neighbors,
+                        ulong            netlnk_max_addrs,
                         char const *     bind_interface ) {
   fd_topo_obj_t * netdev_dbl_buf_obj  = fd_topob_obj( topo, "dbl_buf",     "netbase" );
   fd_topo_obj_t * fib4_main_obj       = fd_topob_obj( topo, "fib4",        "netbase" );
@@ -45,6 +46,12 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
   /* Configure double buffer of netdev table */
   ulong const netdev_dbl_buf_mtu = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
   FD_TEST( fd_pod_insertf_ulong( topo->props, netdev_dbl_buf_mtu, "obj.%lu.mtu", netdev_dbl_buf_obj->id ) );
+
+  ulong netdev_seed;
+  FD_TEST( 8UL==getrandom( &netdev_seed, sizeof(ulong), 0 ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, netdev_seed,      "obj.%lu.seed",      netdev_hmap_obj->id     ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_addrs, "obj.%lu.addrs_max", netdev_hmap_obj->id     ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_addrs, "obj.%lu.addrs_max", netdev_hmap_ele_obj->id ) );
 
   /* Configure route table */
   FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_routes, "obj.%lu.route_max", fib4_main_obj->id  ) );
@@ -74,6 +81,7 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
   netlink_tile->netlink.neigh4_ele_obj_id      = neigh4_ele_obj->id;
   netlink_tile->netlink.netdev_hmap_obj_id     = netdev_hmap_obj->id;
   netlink_tile->netlink.netdev_hmap_ele_obj_id = netdev_hmap_ele_obj->id;
+  netlink_tile->netlink.netdev_hmap_max        = netlnk_max_addrs;
 }
 
 void
@@ -197,14 +205,14 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( tile->netlink.neigh4_ele_obj_id      );
   FD_TEST( tile->netlink.fib4_local_obj_id      );
   FD_TEST( tile->netlink.fib4_main_obj_id       );
-
+  FD_TEST( tile->netlink.netdev_hmap_max        );
   void * hmap_shmem     = fd_topo_obj_laddr( topo, tile->netlink.netdev_hmap_obj_id     );
   void * hmap_ele_shmem = fd_topo_obj_laddr( topo, tile->netlink.netdev_hmap_ele_obj_id );
 
   FD_TEST( hmap_shmem );
   FD_TEST( hmap_ele_shmem );
 
-  FD_TEST( fd_netdev_tbl_new( ctx->netdev_local, hmap_shmem, hmap_ele_shmem, NETDEV_MAX, BOND_MASTER_MAX, ADDRS_MAX, (ADDRS_MAX>>4) ) );
+  FD_TEST( fd_netdev_tbl_new( ctx->netdev_local, hmap_shmem, hmap_ele_shmem, NETDEV_MAX, BOND_MASTER_MAX, tile->netlink.netdev_hmap_max ) );
   FD_TEST( fd_netdev_tbl_join( ctx->netdev_tbl, ctx->netdev_local, hmap_shmem, hmap_ele_shmem ) );
 
   FD_TEST( ctx->netdev_buf = fd_dbl_buf_join( fd_topo_obj_laddr( topo, tile->netlink.netdev_dbl_buf_obj_id ) ) );
