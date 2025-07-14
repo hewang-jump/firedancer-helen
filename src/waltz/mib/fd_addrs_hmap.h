@@ -52,4 +52,15 @@ fd_addrs_hmap_reset( fd_addrs_hmap_t * hmap,
                      void * hmap_shmem,
                      void * hmap_shmem_ele );
 
+/* Get the hashmap's lock count. */
+static inline ulong  fd_addrs_hmap_get_lock_cnt ( ulong elem_max ) {
+  if( elem_max <= 32UL ) return 1;
+  return elem_max>>4;
+}
+
+/* Get the hashmap's total capacity (50% extra capacity beyond the requested size to optimize performance) */
+static inline ulong   fd_addrs_hmap_get_ele_max   ( ulong max_cnt  ) { return fd_ulong_pow2_up( max_cnt + ( max_cnt>>1 ) ); }
+/* Get the hashmap's probe limit (75% of total capacity). Higher than requested size to avoid probe failure */
+static inline ulong   fd_addrs_hmap_get_probe_max ( ulong elem_max ) { return elem_max - ( elem_max>>2 );                      }
+
 #endif /* HEADER_fd_src_waltz_mib_fd_addrs_hmap_h */
