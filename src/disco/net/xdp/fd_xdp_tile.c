@@ -896,6 +896,12 @@ net_rx_packet( fd_net_ctx_t * ctx,
       return;
     }
 
+    /* reverse path filtering (strict mode) */
+    if( FD_UNLIKELY( !net_tx_route( ctx, iphdr->saddr ) || !ctx->tx_op.src_ip ) ) {
+      ctx->metrics.rx_gre_inv_pkt_cnt++;
+      return;
+    }
+
     ulong overhead  = FD_IP4_GET_LEN( *iphdr ) + sizeof(fd_gre_hdr_t);
 
     if( FD_UNLIKELY( (uchar *)iphdr+overhead+sizeof(fd_ip4_hdr_t)>packet_end ) ) {
@@ -921,6 +927,15 @@ net_rx_packet( fd_net_ctx_t * ctx,
   /* Filter for UDP/IPv4 packets. */
   if( FD_UNLIKELY( ( FD_IP4_GET_VERSION( *iphdr )!=0x4 ) ||
                    ( iphdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) ) return;
+
+  /* reverse path filtering (strict mode) */
+  if( FD_UNLIKELY( !net_tx_route( ctx, iphdr->saddr ) || !ctx->tx_op.src_ip ) ) {
+    return;
+  }
+  if( FD_UNLIKELY( is_packet_gre && !ctx->tx_op.use_gre ) ) {
+    ctx->metrics.rx_gre_inv_pkt_cnt++;
+    return;
+  }
 
   /* IPv4 is variable-length, so lookup IHL to find start of UDP */
   uint iplen        = FD_IP4_GET_LEN( *iphdr );
