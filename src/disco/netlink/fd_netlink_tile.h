@@ -8,7 +8,6 @@
 /* Hardcoded limits */
 #define NETDEV_MAX      (256U)
 #define BOND_MASTER_MAX (256U)
-#define ADDRS_MAX       (256U)
 
 /* fd_tile_netlnk provides the netlink tile.
 

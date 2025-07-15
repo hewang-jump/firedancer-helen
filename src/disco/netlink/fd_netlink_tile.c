@@ -219,8 +219,8 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( hmap_shmem );
   FD_TEST( hmap_ele_shmem );
 
-  FD_TEST( fd_netdev_tbl_new( ctx->netdev_local, hmap_shmem, hmap_ele_shmem, NETDEV_MAX, BOND_MASTER_MAX, tile->netlink.netdev_hmap_max ) );
-  FD_TEST( fd_netdev_tbl_join( ctx->netdev_tbl, ctx->netdev_local, hmap_shmem, hmap_ele_shmem ) );
+  FD_TEST( fd_netdev_new( ctx->netdev_local, hmap_shmem, hmap_ele_shmem, NETDEV_MAX, BOND_MASTER_MAX, tile->netlink.netdev_hmap_max ) );
+  FD_TEST( fd_netdev_join( ctx->netdev_tbl, ctx->netdev_local ) );
 
   FD_TEST( ctx->netdev_buf = fd_dbl_buf_join( fd_topo_obj_laddr( topo, tile->netlink.netdev_dbl_buf_obj_id ) ) );
 
@@ -329,6 +329,11 @@ during_housekeeping( fd_netlink_tile_ctx_t * ctx ) {
     if( now < ctx->address_update_ts ) return;
     ctx->action &= ~FD_NET_TILE_ACTION_ADDRESS_UPDATE;
     fd_netdev_netlink_load_addrs( ctx->netdev_tbl, ctx->nl_req);
+    /* The ctx->netdev_buf double buffer is not updated here:
+       fd_netdev_netlink_load_addrs only modified the hdr->addrs_cnt field in
+       ctx->netdev_local, which is for netlink tile use only. And unlike the
+       netdev interface table, the xdp tile can directly query the netdev
+       address hashmap through its join and will not be modifying it. */
     ctx->address_update_ts = now+ctx->update_backoff;
     ctx->metrics.address_full_syncs++;
   }

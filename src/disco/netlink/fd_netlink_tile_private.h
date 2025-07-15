@@ -5,7 +5,7 @@
 #include "../metrics/generated/fd_metrics_netlnk.h"
 #include "../../waltz/ip/fd_fib4.h"
 #include "../../waltz/mib/fd_dbl_buf.h"
-#include "../../waltz/mib/fd_netdev_tbl.h"
+#include "../../waltz/mib/fd_netdev.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../waltz/neigh/fd_neigh4_probe.h"
 
@@ -36,7 +36,7 @@ struct fd_netlink_tile_ctx {
   /* Link table */
   void *               netdev_local;  /* local mutable table */
   ulong                netdev_sz;     /* size of netdev table */
-  fd_netdev_tbl_join_t netdev_tbl[1]; /* join to local mutable table */
+  fd_netdev_obj_join_t netdev_tbl[1]; /* join to local mutable table */
   fd_dbl_buf_t *       netdev_buf;    /* global immutable copy */
 
   /* Route tables */

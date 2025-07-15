@@ -1,8 +1,7 @@
 #ifndef HEADER_fd_src_waltz_mib_fd_netdev_h
 #define HEADER_fd_src_waltz_mib_fd_netdev_h
 
-/* fd_netdev_tbl.h provides a network interface table.
-   The entrypoint of this API is fd_netlink_tbl_t. */
+/* fd_netdev.h provides a network interface table */
 
 #include "../../util/fd_util_base.h"
 #include "fd_addrs_hmap.h"
@@ -19,9 +18,9 @@
 #define FD_OPER_STATUS_NOT_PRESENT      (6) /* some component is missing */
 #define FD_OPER_STATUS_LOWER_LAYER_DOWN (7) /* down due to state of lower-layer interface(s) */
 
-/* fd_netdev_t holds basic configuration of a network device. */
+/* fd_netdev_entry_t holds basic configuration of a network device. */
 
-struct fd_netdev {
+struct fd_netdev_entry {
   ushort mtu;            /* Largest layer-3 payload that fits in a packet */
   uchar  mac_addr[6];    /* MAC address */
   ushort if_idx;         /* Interface index */
@@ -34,7 +33,7 @@ struct fd_netdev {
   uint   gre_src_ip;
 };
 
-typedef struct fd_netdev fd_netdev_t;
+typedef struct fd_netdev_entry fd_netdev_entry_t;
 
 /* FD_NETDEV_BOND_SLAVE_MAX is the max supported number of bond slaves. */
 
@@ -49,17 +48,23 @@ struct fd_netdev_bond {
 
 typedef struct fd_netdev_bond fd_netdev_bond_t;
 
-/* fd_netdev_tbl_t provides an interface table.
+/* fd_netdev_obj_t provides an interface table and an address hashmap.
 
-   This table is optimized for frequent reads and rare writes.  It is
+   The interface table is optimized for frequent reads and rare writes. It is
    generally not thread-safe to modify the table in-place.  The only safe
    way to sync modifications to other threads is by copying the table in
-   its entirety. */
+   its entirety.
 
-struct fd_netdev_tbl_private;
-typedef struct fd_netdev_tbl_private fd_netdev_tbl_t;
+   The address hashmap is also optimized for frequent reads and rare writes.
+   Writes to the hashmap are blocking, during which read will fail. Therefore
+   it's safe to modify the hashmap in-place, but reads should always be checked
+   for failure.
+   */
 
-struct fd_netdev_tbl_hdr {
+struct fd_netdev_obj_private;
+typedef struct fd_netdev_obj_private fd_netdev_obj_t;
+
+struct fd_netdev_obj_hdr {
   ushort dev_max;
   ushort bond_max;
   ushort dev_cnt;
@@ -68,18 +73,16 @@ struct fd_netdev_tbl_hdr {
   void * addrs_ele_mem;
   ulong  addrs_max;
   ulong  addrs_cnt;
-  ulong  addrs_seed;
-  ulong  addrs_lock_cnt;
 };
-typedef struct fd_netdev_tbl_hdr fd_netdev_tbl_hdr_t;
+typedef struct fd_netdev_obj_hdr fd_netdev_obj_hdr_t;
 
-struct fd_netdev_tbl_join {
-  fd_netdev_tbl_hdr_t * hdr;
-  fd_netdev_t *         dev_tbl;
-  fd_netdev_bond_t *    bond_tbl;
-  fd_addrs_hmap_t       addrs_hmap[1];    // join handle to fd_addrs_hmap
+struct fd_netdev_obj_join {
+  fd_netdev_obj_hdr_t * hdr;
+  fd_netdev_entry_t   * dev_tbl;
+  fd_netdev_bond_t    * bond_tbl;
+  fd_addrs_hmap_t       addrs_hmap[1];  // join handle to fd_addrs_hmap
 };
-typedef struct fd_netdev_tbl_join fd_netdev_tbl_join_t;
+typedef struct fd_netdev_obj_join fd_netdev_obj_join_t;
 
 #define FD_NETDEV_TBL_MAGIC (0xd5f9ba2710d6bf0aUL) /* random */
 
@@ -99,55 +102,55 @@ FD_FN_CONST ulong
 fd_netdev_tbl_footprint( ulong dev_max,
                          ulong bond_max );
 
-/* fd_netdev_tbl_new formats a memory region as an empty netdev_tbl.
-   Returns shmem on success. Assume the shhmap and shhmap_ele have been
-   properly initialized. On failure returns NULL and logs reason for failure. */
+/* fd_netdev_new formats a memory region as an empty netdev object, creates an
+   empty netdev table as part of the memory, and stores pointers to the address
+   hashmap. Assume the address hmap's shhmap and shhmap_ele have been properly
+   initialized by calling hmap_new(). Returns shmem on success. On failure
+   returns NULL and logs reason for failure. */
 
 void *
-fd_netdev_tbl_new( void * shmem,
-                   void * shhmap,
-                   void * shhmap_ele,
-                   ulong  dev_max,
-                   ulong  bond_max,
-                   ulong  hmap_max );
+fd_netdev_new( void * shmem,
+               void * shhmap,
+               void * shhmap_ele,
+               ulong  dev_max,
+               ulong  bond_max,
+               ulong  hmap_max );
 
-/* fd_netdev_tbl_join joins a netdev_tbl at shtbl and shhmap. ljoin points to a
-   fd_netdev_tbl_join_t[1] to which object information is written to.
-   Returns ljoin on success. Assume the shhmap and shhmap_ele have been
-   properly initialized. On failure, returns NULL and logs reason for
-   failure. */
+/* fd_netdev_join joins a netdev_obj at shmem. Assume shmem has been properly
+   initialized by calling fd_netdev_new. ljoin points to a
+   fd_netdev_obj_join_t[1] to which object information is written to. Returns
+   ljoin on success. On failure, returns NULL and logs reason for failure. */
 
-fd_netdev_tbl_join_t *
-fd_netdev_tbl_join( void * ljoin,
-                    void * shtbl,
-                    void * shhmap,
-                    void * shhmap_ele );
+fd_netdev_obj_join_t *
+fd_netdev_join( void * ljoin,
+                void * shmem );
 
-/* fd_netdev_tbl_leave undoes a fd_netdev_tbl_join.  Returns ownership
+/* fd_netdev_leave undoes a fd_netdev_join.  Returns ownership
    of the region backing join to the caller.  (Warning: This returns ljoin,
-   not shtbl) */
+   not shmem) */
 
 void *
-fd_netdev_tbl_leave( fd_netdev_tbl_join_t * join );
+fd_netdev_leave( fd_netdev_obj_join_t * join );
 
-/* fd_netdev_tbl_delete unformats the memory region backing a netdev_tbl
+/* fd_netdev_delete unformats the memory region backing a netdev object
    and returns ownership of the region back to the caller. */
 
 void *
-fd_netdev_tbl_delete( void * shtbl );
+fd_netdev_delete( void * shmem );
 
 /* fd_netdev_tbl_reset resets the table to the state of a newly constructed
-   empty object (clears all devices and bonds). */
+   empty object (clears all devices and bonds). Does not modify the netdev
+   address hashmap. */
 
 void
-fd_netdev_tbl_reset( fd_netdev_tbl_join_t * tbl );
+fd_netdev_tbl_reset( fd_netdev_obj_join_t * join );
 
-/* fd_netdev_tbl_hmap_reset resets the address hmap inside the netdev table to
+/* fd_netdev_hmap_reset resets the address hmap inside the netdev object to
    the state of a newly constructed empty object (clears all inserted entries).
-   Assume tbl contains a valid join to the hmap. This operation is blocking */
+   This operation is blocking. Does not modify the netdev table */
 
 void
-fd_netdev_tbl_hmap_reset( fd_netdev_tbl_join_t * tbl );
+fd_netdev_hmap_reset( fd_netdev_obj_join_t * join );
 
 #if FD_HAS_HOSTED
 
@@ -156,7 +159,7 @@ fd_netdev_tbl_hmap_reset( fd_netdev_tbl_join_t * tbl );
    newlines.  Returns errno on failure and 0 on success. */
 
 int
-fd_netdev_tbl_fprintf( fd_netdev_tbl_join_t const * tbl,
+fd_netdev_tbl_fprintf( fd_netdev_obj_join_t const * tbl,
                        void *                       file );
 
 #endif /* FD_HAS_HOSTED */

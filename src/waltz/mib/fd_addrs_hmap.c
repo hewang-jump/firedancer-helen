@@ -29,7 +29,7 @@ fd_addrs_hmap_insert( fd_addrs_hmap_t * hmap,
   fd_addrs_hmap_query_t query[1];
   fd_addrs_hmap_entry_t sentinel[1];
   int err = fd_addrs_hmap_prepare( hmap, &key, sentinel, query, FD_MAP_FLAG_BLOCKING );
-  if( FD_UNLIKELY( err==FD_MAP_ERR_FULL ) ) return 0;   // Has probed longer than prob max.
+  if( FD_UNLIKELY( err==FD_MAP_ERR_FULL ) ) return 0;   // Map is full.
   else if ( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_dstfilter_hmap_prepare failed. err: %d", err ));
 
   fd_addrs_hmap_entry_t * ele = fd_addrs_hmap_query_ele( query );

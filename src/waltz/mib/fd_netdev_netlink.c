@@ -2,7 +2,7 @@
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_ip4.h"
 #include "fd_addrs_hmap.h"
-#include "fd_netdev_tbl.h"
+#include "fd_netdev.h"
 #include <errno.h>
 #include <linux/if_link.h>
 
@@ -16,9 +16,9 @@
 #include <linux/rtnetlink.h> /* RTM_{...}, NLM_{...} */
 #include <linux/if_tunnel.h>
 
-static fd_netdev_t *
-fd_netdev_init( fd_netdev_t * netdev ) {
-  *netdev = (fd_netdev_t) {
+static fd_netdev_entry_t *
+fd_netdev_init( fd_netdev_entry_t * netdev ) {
+  *netdev = (fd_netdev_entry_t) {
     .mtu           = 1500,
     .if_idx        = 0,
     .slave_tbl_idx = -1,
@@ -55,10 +55,10 @@ ifoper_to_oper_status( uint if_oper ) {
 }
 
 int
-fd_netdev_netlink_load_addrs( fd_netdev_tbl_join_t * tbl,
+fd_netdev_netlink_load_addrs( fd_netdev_obj_join_t * tbl,
                               fd_netlink_t *         netlink ) {
   FD_LOG_NOTICE(( "fd_netdev_netlink_load_addrs" ));
-  fd_netdev_tbl_hmap_reset( tbl );
+  fd_netdev_hmap_reset( tbl );
 
   uint seq = netlink->seq++;
   struct {
@@ -146,7 +146,7 @@ fd_netdev_netlink_load_addrs( fd_netdev_tbl_join_t * tbl,
 }
 
 int
-fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
+fd_netdev_netlink_load_table( fd_netdev_obj_join_t * tbl,
                               fd_netlink_t *         netlink ) {
   fd_netdev_tbl_reset( tbl );
 
@@ -210,7 +210,7 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
     struct rtattr *    rat    = (void *)( (ulong)msg + NLMSG_ALIGN( sizeof(struct ifinfomsg) ) );
     long               rat_sz = (long)NLMSG_PAYLOAD( nlh, sizeof(struct ifinfomsg) );
 
-    fd_netdev_t netdev[1];
+    fd_netdev_entry_t netdev[1];
     fd_netdev_init( netdev );
 
     for( ; RTA_OK( rat, rat_sz ); rat=RTA_NEXT( rat, rat_sz ) ) {
@@ -331,7 +331,7 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
     int master_idx = tbl->dev_tbl[ j ].master_idx;
     if( master_idx<0 ) continue;
     if( FD_UNLIKELY( master_idx>=tbl->hdr->dev_max ) ) continue; /* unreachable */
-    fd_netdev_t * master = &tbl->dev_tbl[ master_idx ];
+    fd_netdev_entry_t * master = &tbl->dev_tbl[ master_idx ];
 
     /* Allocate a new bond slave table if needed */
     if( master->slave_tbl_idx<0 ) {

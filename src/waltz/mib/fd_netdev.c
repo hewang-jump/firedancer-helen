@@ -1,12 +1,12 @@
-#include "fd_netdev_tbl.h"
+#include "fd_netdev.h"
 #include "../../util/fd_util.h"
 #include "fd_addrs_hmap.h"
 
-struct fd_netdev_tbl_private {
+struct fd_netdev_obj_private {
   ulong               magic;
   ulong               dev_off;
   ulong               bond_off;
-  fd_netdev_tbl_hdr_t hdr;
+  fd_netdev_obj_hdr_t hdr;
 };
 
 FD_FN_CONST ulong
@@ -20,19 +20,19 @@ fd_netdev_tbl_footprint( ulong dev_max,
   if( FD_UNLIKELY( dev_max ==0UL || dev_max >USHORT_MAX ) ) return 0UL;
   if( FD_UNLIKELY( bond_max==0UL || bond_max>USHORT_MAX ) ) return 0UL;
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT, \
-      alignof(fd_netdev_tbl_t),  sizeof(fd_netdev_tbl_t)             ),   \
-      alignof(fd_netdev_t),      sizeof(fd_netdev_t)      * dev_max  ),   \
+      alignof(fd_netdev_obj_t),  sizeof(fd_netdev_obj_t)             ),   \
+      alignof(fd_netdev_entry_t),      sizeof(fd_netdev_entry_t)      * dev_max  ),   \
       alignof(fd_netdev_bond_t), sizeof(fd_netdev_bond_t) * bond_max ),   \
       FD_NETDEV_TBL_ALIGN );
 }
 
 void *
-fd_netdev_tbl_new( void * shmem,
-                   void * hmap_shmem,
-                   void * hmap_ele_shmem,
-                   ulong  dev_max,
-                   ulong  bond_max,
-                   ulong  addrs_max ) {
+fd_netdev_new( void * shmem,
+               void * hmap_shmem,
+               void * hmap_ele_shmem,
+               ulong  dev_max,
+               ulong  bond_max,
+               ulong  addrs_max ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -55,12 +55,12 @@ fd_netdev_tbl_new( void * shmem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_netdev_tbl_t *  tbl  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_netdev_tbl_t),  sizeof(fd_netdev_tbl_t) );
-  fd_netdev_t *      dev  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_netdev_t),      sizeof(fd_netdev_t)      * dev_max  );
+  fd_netdev_obj_t *   tbl = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_netdev_obj_t),  sizeof(fd_netdev_obj_t) );
+  fd_netdev_entry_t * dev = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_netdev_entry_t), sizeof(fd_netdev_entry_t) * dev_max  );
   fd_netdev_bond_t * bond = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_netdev_bond_t), sizeof(fd_netdev_bond_t) * bond_max );
   FD_SCRATCH_ALLOC_FINI( l, FD_NETDEV_TBL_ALIGN );
 
-  *tbl = (fd_netdev_tbl_t) {
+  *tbl = (fd_netdev_obj_t) {
     .magic    = FD_NETDEV_TBL_MAGIC,
     .dev_off  = (ulong)dev  - (ulong)tbl,
     .bond_off = (ulong)bond - (ulong)tbl,
@@ -76,40 +76,38 @@ fd_netdev_tbl_new( void * shmem,
     }
   };
 
-  fd_netdev_tbl_join_t join[1];
-  fd_netdev_tbl_join( join, shmem, hmap_shmem, hmap_ele_shmem );
+  fd_netdev_obj_join_t join[1];
+  fd_netdev_join( join, shmem );
   fd_netdev_tbl_reset( join );
-  fd_netdev_tbl_leave( join );
+  fd_netdev_leave( join );
 
   return tbl;
 }
 
-fd_netdev_tbl_join_t *
-fd_netdev_tbl_join( void * ljoin,
-                    void * shtbl,
-                    void * shhmap,
-                    void * shhmap_ele ) {
+fd_netdev_obj_join_t *
+fd_netdev_join( void * ljoin,
+                void * shmem ) {
 
-  if( FD_UNLIKELY( !shtbl ) ) {
-    FD_LOG_WARNING(( "NULL shtbl" ));
+  if( FD_UNLIKELY( !shmem ) ) {
+    FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
   }
 
-  fd_netdev_tbl_join_t * join = ljoin;
-  fd_netdev_tbl_t *      tbl  = shtbl;
+  fd_netdev_obj_join_t * join = ljoin;
+  fd_netdev_obj_t *      obj  = shmem;
 
-  if( FD_UNLIKELY( tbl->magic!=FD_NETDEV_TBL_MAGIC ) ) {
+  if( FD_UNLIKELY( obj->magic!=FD_NETDEV_TBL_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
 
-  *join = (fd_netdev_tbl_join_t) {
-    .hdr        = &tbl->hdr,
-    .dev_tbl    = (fd_netdev_t      *)( (ulong)tbl + tbl->dev_off  ),
-    .bond_tbl   = (fd_netdev_bond_t *)( (ulong)tbl + tbl->bond_off ),
+  *join = (fd_netdev_obj_join_t) {
+    .hdr        = &obj->hdr,
+    .dev_tbl    = (fd_netdev_entry_t *)( (ulong)obj + obj->dev_off  ),
+    .bond_tbl   = (fd_netdev_bond_t  *)( (ulong)obj + obj->bond_off ),
   };
 
-  if( FD_UNLIKELY( !fd_addrs_hmap_join( join->addrs_hmap, shhmap, shhmap_ele ) ) ) {
+  if( FD_UNLIKELY( !fd_addrs_hmap_join( join->addrs_hmap, obj->hdr.addrs_mem, obj->hdr.addrs_ele_mem ) ) ) {
     FD_LOG_WARNING(( "fd_addrs_hmap_join failed" ));
     return NULL;
   }
@@ -118,40 +116,40 @@ fd_netdev_tbl_join( void * ljoin,
 }
 
 void *
-fd_netdev_tbl_leave( fd_netdev_tbl_join_t * join ) {
+fd_netdev_leave( fd_netdev_obj_join_t * join ) {
   return join;
 }
 
 void *
-fd_netdev_tbl_delete( void * shtbl ) {
+fd_netdev_delete( void * shmem ) {
 
-  if( FD_UNLIKELY( !shtbl ) ) {
+  if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shtbl" ));
     return NULL;
   }
 
-  fd_netdev_tbl_t * tbl = shtbl;
-  tbl->magic = 0UL;
-  return tbl;
+  fd_netdev_obj_t * obj = shmem;
+  obj->magic = 0UL;
+  return obj;
 }
 
 void
-fd_netdev_tbl_reset( fd_netdev_tbl_join_t * tbl ) {
-  tbl->hdr->dev_cnt   = 0;
-  tbl->hdr->bond_cnt  = 0;
-  for( ulong j=0UL; j<(tbl->hdr->dev_max); j++ ) {
-    tbl->dev_tbl[j] = (fd_netdev_t) {
+fd_netdev_tbl_reset( fd_netdev_obj_join_t * join ) {
+  join->hdr->dev_cnt   = 0;
+  join->hdr->bond_cnt  = 0;
+  for( ulong j=0UL; j<(join->hdr->dev_max); j++ ) {
+    join->dev_tbl[j] = (fd_netdev_entry_t) {
       .master_idx    = -1,
       .slave_tbl_idx = -1
     };
   }
-  fd_memset( tbl->bond_tbl, 0, sizeof(fd_netdev_bond_t) * tbl->hdr->bond_max );
+  fd_memset( join->bond_tbl, 0, sizeof(fd_netdev_bond_t) * join->hdr->bond_max );
 }
 
 void
-fd_netdev_tbl_hmap_reset( fd_netdev_tbl_join_t * tbl ) {
-  tbl->hdr->addrs_cnt = 0;
-  fd_addrs_hmap_reset( tbl->addrs_hmap, tbl->hdr->addrs_mem, tbl->hdr->addrs_ele_mem );
+fd_netdev_hmap_reset( fd_netdev_obj_join_t * join ) {
+  join->hdr->addrs_cnt = 0;
+  fd_addrs_hmap_reset( join->addrs_hmap, join->hdr->addrs_mem, join->hdr->addrs_ele_mem );
 }
 
 #if FD_HAS_HOSTED
@@ -164,11 +162,11 @@ fd_netdev_tbl_hmap_reset( fd_netdev_tbl_join_t * tbl ) {
 #define WRAP_PRINTF(file,...) if( FD_UNLIKELY( fprintf( (file), __VA_ARGS__ )<0 ) ) return errno
 
 int
-fd_netdev_tbl_fprintf( fd_netdev_tbl_join_t const * tbl,
+fd_netdev_tbl_fprintf( fd_netdev_obj_join_t const * tbl,
                        void *                       file_ ) {
   FILE * file = file_;
   for( ulong j=0UL; j<(tbl->hdr->dev_cnt); j++ ) {
-    fd_netdev_t const * dev = &tbl->dev_tbl[j];
+    fd_netdev_entry_t const * dev = &tbl->dev_tbl[j];
     if( !dev->oper_status ) continue;
     WRAP_PRINTF( file,
         "%lu: %s: mtu %u state (%i-%s)",

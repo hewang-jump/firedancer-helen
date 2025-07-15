@@ -11,9 +11,6 @@ struct __attribute__((aligned(16))) fd_addrs_fltr_attrs {
 };
 typedef struct fd_addrs_fltr_attrs fd_addrs_fltr_attrs_t;
 
-#define ADDRS_HMAP_LOCK_CNT (4U)
-#define ADDRS_HMAP_SEED (654321UL)
-
 #define MAP_NAME fd_addrs_hmap
 #define MAP_ELE_T fd_addrs_hmap_entry_t
 #define MAP_KEY_T uint
