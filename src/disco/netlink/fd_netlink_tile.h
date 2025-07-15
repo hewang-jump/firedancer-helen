@@ -8,6 +8,7 @@
 /* Hardcoded limits */
 #define NETDEV_MAX      (256U)
 #define BOND_MASTER_MAX (256U)
+#define ADDRS_MAX       (256U)
 
 /* fd_tile_netlnk provides the netlink tile.
 
@@ -36,6 +37,7 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
                         fd_topo_t *      topo,
                         ulong            netlnk_max_routes,
                         ulong            netlnk_max_neighbors,
+                        ulong            netlnk_max_addrs,
                         char const *     bind_interface );
 
 void

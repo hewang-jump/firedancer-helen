@@ -25,22 +25,33 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
                         fd_topo_t *      topo,
                         ulong            netlnk_max_routes,
                         ulong            netlnk_max_neighbors,
+                        ulong            netlnk_max_addrs,
                         char const *     bind_interface ) {
-  fd_topo_obj_t * netdev_dbl_buf_obj = fd_topob_obj( topo, "dbl_buf",     "netbase" );
-  fd_topo_obj_t * fib4_main_obj      = fd_topob_obj( topo, "fib4",        "netbase" );
-  fd_topo_obj_t * fib4_local_obj     = fd_topob_obj( topo, "fib4",        "netbase" );
-  fd_topo_obj_t * neigh4_obj         = fd_topob_obj( topo, "neigh4_hmap", "netbase" );
-  fd_topo_obj_t * neigh4_ele_obj     = fd_topob_obj( topo, "opaque",      "netbase" );
+  fd_topo_obj_t * netdev_dbl_buf_obj  = fd_topob_obj( topo, "dbl_buf",     "netbase" );
+  fd_topo_obj_t * fib4_main_obj       = fd_topob_obj( topo, "fib4",        "netbase" );
+  fd_topo_obj_t * fib4_local_obj      = fd_topob_obj( topo, "fib4",        "netbase" );
+  fd_topo_obj_t * neigh4_obj          = fd_topob_obj( topo, "neigh4_hmap", "netbase" );
+  fd_topo_obj_t * neigh4_ele_obj      = fd_topob_obj( topo, "opaque",      "netbase" );
+  fd_topo_obj_t * netdev_hmap_obj     = fd_topob_obj( topo, "netdev_hmap", "netbase" );
+  fd_topo_obj_t * netdev_hmap_ele_obj = fd_topob_obj( topo, "netdev_opq",  "netbase" );
 
-  fd_topob_tile_uses( topo, netlink_tile, netdev_dbl_buf_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, netlink_tile, fib4_main_obj,      FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, netlink_tile, fib4_local_obj,     FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, netlink_tile, neigh4_obj,         FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, netlink_tile, neigh4_ele_obj,     FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, netlink_tile, netdev_dbl_buf_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, netlink_tile, fib4_main_obj,       FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, netlink_tile, fib4_local_obj,      FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, netlink_tile, neigh4_obj,          FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, netlink_tile, neigh4_ele_obj,      FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, netlink_tile, netdev_hmap_obj,     FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, netlink_tile, netdev_hmap_ele_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   /* Configure double buffer of netdev table */
   ulong const netdev_dbl_buf_mtu = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
   FD_TEST( fd_pod_insertf_ulong( topo->props, netdev_dbl_buf_mtu, "obj.%lu.mtu", netdev_dbl_buf_obj->id ) );
+
+  ulong netdev_seed;
+  FD_TEST( 8UL==getrandom( &netdev_seed, sizeof(ulong), 0 ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, netdev_seed,      "obj.%lu.seed",      netdev_hmap_obj->id     ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_addrs, "obj.%lu.addrs_max", netdev_hmap_obj->id     ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_addrs, "obj.%lu.addrs_max", netdev_hmap_ele_obj->id ) );
 
   /* Configure route table */
   FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_routes, "obj.%lu.route_max", fib4_main_obj->id  ) );
@@ -62,22 +73,27 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
   FD_TEST( 8UL==getrandom( &seed, sizeof(ulong), 0 ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, seed, "obj.%lu.seed", neigh4_obj->id ) );
 
-  netlink_tile->netlink.netdev_dbl_buf_obj_id = netdev_dbl_buf_obj->id;
-  netlink_tile->netlink.fib4_main_obj_id      = fib4_main_obj->id;
-  netlink_tile->netlink.fib4_local_obj_id     = fib4_local_obj->id;
+  netlink_tile->netlink.netdev_dbl_buf_obj_id  = netdev_dbl_buf_obj->id;
+  netlink_tile->netlink.fib4_main_obj_id       = fib4_main_obj->id;
+  netlink_tile->netlink.fib4_local_obj_id      = fib4_local_obj->id;
   memcpy( netlink_tile->netlink.neigh_if, bind_interface, sizeof(netlink_tile->netlink.neigh_if) );
-  netlink_tile->netlink.neigh4_obj_id         = neigh4_obj->id;
-  netlink_tile->netlink.neigh4_ele_obj_id     = neigh4_ele_obj->id;
+  netlink_tile->netlink.neigh4_obj_id          = neigh4_obj->id;
+  netlink_tile->netlink.neigh4_ele_obj_id      = neigh4_ele_obj->id;
+  netlink_tile->netlink.netdev_hmap_obj_id     = netdev_hmap_obj->id;
+  netlink_tile->netlink.netdev_hmap_ele_obj_id = netdev_hmap_ele_obj->id;
+  netlink_tile->netlink.netdev_hmap_max        = netlnk_max_addrs;
 }
 
 void
 fd_netlink_topo_join( fd_topo_t *      topo,
                       fd_topo_tile_t * netlink_tile,
                       fd_topo_tile_t * join_tile ) {
-  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.neigh4_obj_id     ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.neigh4_ele_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.fib4_main_obj_id  ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.fib4_local_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.neigh4_obj_id          ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.neigh4_ele_obj_id      ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.fib4_main_obj_id       ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.fib4_local_obj_id      ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.netdev_hmap_obj_id     ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.netdev_hmap_ele_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
 }
 
 /* Begin tile methods */
@@ -179,17 +195,25 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_netlink_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_netlink_tile_ctx_t), sizeof(fd_netlink_tile_ctx_t) );
   FD_TEST( ctx->magic==FD_NETLINK_TILE_CTX_MAGIC );
-  ctx->netdev_sz    = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
-  ctx->netdev_local = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_sz );
+  ctx->netdev_sz              = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
+  ctx->netdev_local           = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_sz );
 
-  FD_TEST( tile->netlink.netdev_dbl_buf_obj_id );
-  FD_TEST( tile->netlink.neigh4_obj_id         );
-  FD_TEST( tile->netlink.neigh4_ele_obj_id     );
-  FD_TEST( tile->netlink.fib4_local_obj_id     );
-  FD_TEST( tile->netlink.fib4_main_obj_id      );
+  FD_TEST( tile->netlink.netdev_dbl_buf_obj_id  );
+  FD_TEST( tile->netlink.netdev_hmap_obj_id     );
+  FD_TEST( tile->netlink.netdev_hmap_ele_obj_id );
+  FD_TEST( tile->netlink.neigh4_obj_id          );
+  FD_TEST( tile->netlink.neigh4_ele_obj_id      );
+  FD_TEST( tile->netlink.fib4_local_obj_id      );
+  FD_TEST( tile->netlink.fib4_main_obj_id       );
+  FD_TEST( tile->netlink.netdev_hmap_max        );
+  void * hmap_shmem     = fd_topo_obj_laddr( topo, tile->netlink.netdev_hmap_obj_id     );
+  void * hmap_ele_shmem = fd_topo_obj_laddr( topo, tile->netlink.netdev_hmap_ele_obj_id );
 
-  FD_TEST( fd_netdev_tbl_new( ctx->netdev_local, NETDEV_MAX, BOND_MASTER_MAX ) );
-  FD_TEST( fd_netdev_tbl_join( ctx->netdev_tbl, ctx->netdev_local ) );
+  FD_TEST( hmap_shmem );
+  FD_TEST( hmap_ele_shmem );
+
+  FD_TEST( fd_netdev_tbl_new( ctx->netdev_local, hmap_shmem, hmap_ele_shmem, NETDEV_MAX, BOND_MASTER_MAX, tile->netlink.netdev_hmap_max ) );
+  FD_TEST( fd_netdev_tbl_join( ctx->netdev_tbl, ctx->netdev_local, hmap_shmem, hmap_ele_shmem ) );
 
   FD_TEST( ctx->netdev_buf = fd_dbl_buf_join( fd_topo_obj_laddr( topo, tile->netlink.netdev_dbl_buf_obj_id ) ) );
 
@@ -205,6 +229,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->action |= FD_NET_TILE_ACTION_LINK_UPDATE;
   ctx->action |= FD_NET_TILE_ACTION_ROUTE4_UPDATE;
   ctx->action |= FD_NET_TILE_ACTION_NEIGH_UPDATE;
+  ctx->action |= FD_NET_TILE_ACTION_ADDRESS_UPDATE;
 
   ctx->update_backoff = (long)( fd_tempo_tick_per_ns( NULL ) * 10e6 ); /* 10ms */
 }
@@ -221,6 +246,7 @@ metrics_write( fd_netlink_tile_ctx_t * ctx ) {
   FD_MCNT_SET(       NETLNK, DROP_EVENTS,             fd_netlink_enobufs_cnt            );
   FD_MCNT_SET(       NETLNK, LINK_FULL_SYNCS,         ctx->metrics.link_full_syncs      );
   FD_MCNT_SET(       NETLNK, ROUTE_FULL_SYNCS,        ctx->metrics.route_full_syncs     );
+  FD_MCNT_SET(       NETLNK, ADDRESS_FULL_SYNCS,      ctx->metrics.address_full_syncs   );
   FD_MCNT_ENUM_COPY( NETLNK, UPDATES,                 ctx->metrics.update_cnt           );
   FD_MGAUGE_SET(     NETLNK, INTERFACE_COUNT,         ctx->netdev_tbl->hdr->dev_cnt     );
   FD_MGAUGE_SET(     NETLNK, ROUTE_COUNT_LOCAL,       fd_fib4_cnt( ctx->fib4_local )    );
@@ -268,6 +294,11 @@ netlink_monitor_read( fd_netlink_tile_ctx_t * ctx,
     ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MSG_V_NEIGH_IDX ]++;
     break;
   }
+  case RTM_NEWADDR:
+  case RTM_DELADDR:
+    ctx->action |= FD_NET_TILE_ACTION_ADDRESS_UPDATE;
+    ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MSG_V_ADDRESS_IDX ]++;
+    break;
   default:
     FD_LOG_INFO(( "Received unexpected netlink message type %u", nlh->nlmsg_type ));
     break;
@@ -286,6 +317,13 @@ during_housekeeping( fd_netlink_tile_ctx_t * ctx ) {
     fd_dbl_buf_insert( ctx->netdev_buf, ctx->netdev_local, ctx->netdev_sz );
     ctx->link_update_ts = now+ctx->update_backoff;
     ctx->metrics.link_full_syncs++;
+  }
+  if( ctx->action & FD_NET_TILE_ACTION_ADDRESS_UPDATE ) {
+    if( now < ctx->address_update_ts ) return;
+    ctx->action &= ~FD_NET_TILE_ACTION_ADDRESS_UPDATE;
+    fd_netdev_netlink_load_addrs( ctx->netdev_tbl, ctx->nl_req);
+    ctx->address_update_ts = now+ctx->update_backoff;
+    ctx->metrics.address_full_syncs++;
   }
   if( ctx->action & FD_NET_TILE_ACTION_ROUTE4_UPDATE ) {
     if( now < ctx->route4_update_ts ) return;

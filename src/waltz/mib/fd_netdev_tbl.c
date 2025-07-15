@@ -1,5 +1,6 @@
 #include "fd_netdev_tbl.h"
 #include "../../util/fd_util.h"
+#include "fd_addrs_hmap.h"
 
 struct fd_netdev_tbl_private {
   ulong               magic;
@@ -27,8 +28,11 @@ fd_netdev_tbl_footprint( ulong dev_max,
 
 void *
 fd_netdev_tbl_new( void * shmem,
+                   void * hmap_shmem,
+                   void * hmap_ele_shmem,
                    ulong  dev_max,
-                   ulong  bond_max ) {
+                   ulong  bond_max,
+                   ulong  addrs_max ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -61,15 +65,19 @@ fd_netdev_tbl_new( void * shmem,
     .dev_off  = (ulong)dev  - (ulong)tbl,
     .bond_off = (ulong)bond - (ulong)tbl,
     .hdr = {
-      .dev_max  = (ushort)dev_max,
-      .bond_max = (ushort)bond_max,
-      .dev_cnt  = 0,
-      .bond_cnt = 0,
+      .dev_max        = (ushort)dev_max,
+      .bond_max       = (ushort)bond_max,
+      .dev_cnt        = 0,
+      .bond_cnt       = 0,
+      .addrs_mem      = hmap_shmem,
+      .addrs_ele_mem  = hmap_ele_shmem,
+      .addrs_max      = addrs_max,
+      .addrs_cnt      = 0UL
     }
   };
 
   fd_netdev_tbl_join_t join[1];
-  fd_netdev_tbl_join( join, shmem );
+  fd_netdev_tbl_join( join, shmem, hmap_shmem, hmap_ele_shmem );
   fd_netdev_tbl_reset( join );
   fd_netdev_tbl_leave( join );
 
@@ -78,7 +86,9 @@ fd_netdev_tbl_new( void * shmem,
 
 fd_netdev_tbl_join_t *
 fd_netdev_tbl_join( void * ljoin,
-                    void * shtbl ) {
+                    void * shtbl,
+                    void * shhmap,
+                    void * shhmap_ele ) {
 
   if( FD_UNLIKELY( !shtbl ) ) {
     FD_LOG_WARNING(( "NULL shtbl" ));
@@ -94,10 +104,15 @@ fd_netdev_tbl_join( void * ljoin,
   }
 
   *join = (fd_netdev_tbl_join_t) {
-    .hdr      = &tbl->hdr,
-    .dev_tbl  = (fd_netdev_t      *)( (ulong)tbl + tbl->dev_off  ),
-    .bond_tbl = (fd_netdev_bond_t *)( (ulong)tbl + tbl->bond_off ),
+    .hdr        = &tbl->hdr,
+    .dev_tbl    = (fd_netdev_t      *)( (ulong)tbl + tbl->dev_off  ),
+    .bond_tbl   = (fd_netdev_bond_t *)( (ulong)tbl + tbl->bond_off ),
   };
+
+  if( FD_UNLIKELY( !fd_addrs_hmap_join( join->addrs_hmap, shhmap, shhmap_ele ) ) ) {
+    FD_LOG_WARNING(( "fd_addrs_hmap_join failed" ));
+    return NULL;
+  }
 
   return join;
 }
@@ -122,8 +137,8 @@ fd_netdev_tbl_delete( void * shtbl ) {
 
 void
 fd_netdev_tbl_reset( fd_netdev_tbl_join_t * tbl ) {
-  tbl->hdr->dev_cnt  = 0;
-  tbl->hdr->bond_cnt = 0;
+  tbl->hdr->dev_cnt   = 0;
+  tbl->hdr->bond_cnt  = 0;
   for( ulong j=0UL; j<(tbl->hdr->dev_max); j++ ) {
     tbl->dev_tbl[j] = (fd_netdev_t) {
       .master_idx    = -1,
@@ -131,6 +146,12 @@ fd_netdev_tbl_reset( fd_netdev_tbl_join_t * tbl ) {
     };
   }
   fd_memset( tbl->bond_tbl, 0, sizeof(fd_netdev_bond_t) * tbl->hdr->bond_max );
+}
+
+void
+fd_netdev_tbl_hmap_reset( fd_netdev_tbl_join_t * tbl ) {
+  tbl->hdr->addrs_cnt = 0;
+  fd_addrs_hmap_reset( tbl->addrs_hmap, tbl->hdr->addrs_mem, tbl->hdr->addrs_ele_mem );
 }
 
 #if FD_HAS_HOSTED

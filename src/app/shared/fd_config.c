@@ -518,6 +518,7 @@ fd_config_validate( fd_config_t const * config ) {
 
   CFG_HAS_NON_ZERO( tiles.netlink.max_routes    );
   CFG_HAS_NON_ZERO( tiles.netlink.max_neighbors );
+  CFG_HAS_NON_ZERO( tiles.netlink.max_addrs     );
 
   CFG_HAS_NON_ZERO( tiles.quic.regular_transaction_listen_port );
   CFG_HAS_NON_ZERO( tiles.quic.quic_transaction_listen_port );
