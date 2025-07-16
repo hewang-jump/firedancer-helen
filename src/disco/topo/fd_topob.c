@@ -50,7 +50,7 @@ fd_topob_obj( fd_topo_t *  topo,
               char const * obj_name,
               char const * wksp_name ) {
   if( FD_UNLIKELY( !topo || !obj_name || !wksp_name ) ) FD_LOG_ERR(( "NULL args" ));
-  if( FD_UNLIKELY( strlen( obj_name )>=sizeof(topo->objs[ topo->obj_cnt ].name ) ) ) FD_LOG_ERR(( "obj name too long: %s", obj_name ));
+  if( FD_UNLIKELY( strlen( obj_name )>=sizeof(topo->objs[ topo->obj_cnt ].name ) ) ) FD_LOG_ERR(( "obj name too long: %s %lu, %lu", obj_name, strlen( obj_name ), sizeof(topo->objs[ topo->obj_cnt ].name ) ));
   if( FD_UNLIKELY( topo->obj_cnt>=FD_TOPO_MAX_OBJS ) ) FD_LOG_ERR(( "too many objects" ));
 
   ulong wksp_id = fd_topo_find_wksp( topo, wksp_name );

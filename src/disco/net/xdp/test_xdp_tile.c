@@ -3,6 +3,8 @@
 #include "fd_xdp_tile.c"
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../waltz/neigh/fd_neigh4_map.h"
+#include "../../../waltz/mib/fd_addrs_hmap.h"
+#include "../../../waltz/mib/fd_netdev_netlink.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../waltz/ip/fd_fib4.h"
 #include "../../../util/tmpl/fd_map.h"
@@ -139,22 +141,41 @@ main( int     argc,
   FD_TEST( fd_dbl_buf_new( netdev_dbl_buf_mem, netdev_mtu, 0 ) );
   topo->workspaces[topo_netdev_dbl_buf_obj->wksp_id].wksp = wksp;
   topo->objs[ topo_netdev_dbl_buf_obj->id ].offset = (ulong)netdev_dbl_buf_mem - (ulong)wksp;
-  FD_TEST( fd_topo_obj_laddr(topo, topo_netdev_dbl_buf_obj->id)==netdev_dbl_buf_mem );
+  FD_TEST( fd_topo_obj_laddr( topo, topo_netdev_dbl_buf_obj->id )==netdev_dbl_buf_mem );
   topo_tile->xdp.netdev_dbl_buf_obj_id     = topo_netdev_dbl_buf_obj->id;
+
+
+  /* IP address hashmap setup */
+  ulong addrs_max = 32UL;
+  ulong addrs_lock_cnt = 4UL;
+  ulong addrs_hmap_footprint = fd_addrs_hmap_footprint( addrs_max, addrs_lock_cnt, addrs_max );
+  fd_topo_obj_t * addrs_hmap_obj = fd_topob_obj( topo, "addrs_hmap", "wksp" );
+  void * addrs_hmap_mem = fd_wksp_alloc_laddr( wksp, fd_addrs_hmap_align(), addrs_hmap_footprint, WKSP_TAG );
+  FD_TEST( addrs_hmap_mem );
+  topo->workspaces[ addrs_hmap_obj->wksp_id ].wksp = wksp;
+  topo->objs[ addrs_hmap_obj->id ].offset = (ulong)addrs_hmap_mem - (ulong)wksp;
+  FD_TEST( fd_topo_obj_laddr( topo, addrs_hmap_obj->id )==addrs_hmap_mem );
+  topo_tile->xdp.netdev_hmap_obj_id  = addrs_hmap_obj->id;
+
+  void * addrs_hmap_ele_mem = fd_wksp_alloc_laddr( wksp, alignof(fd_addrs_hmap_entry_t), addrs_max*sizeof(fd_addrs_hmap_entry_t), WKSP_TAG );
+  fd_topo_obj_t * addrs_hmap_ele_obj = fd_topob_obj( topo, "addrs_ele", "wksp" );
+  FD_TEST( addrs_hmap_ele_mem );
+  topo->workspaces[ addrs_hmap_ele_obj->wksp_id ].wksp = wksp;
+  topo->objs[ addrs_hmap_ele_obj->id ].offset = (ulong)addrs_hmap_ele_mem - (ulong)wksp;
+  FD_TEST( fd_topo_obj_laddr( topo, addrs_hmap_ele_obj->id )==addrs_hmap_ele_mem );
+  topo_tile->xdp.netdev_hmap_ele_obj_id  = addrs_hmap_ele_obj->id;
 
   /* Attach links to tile */
   fd_topob_tile_out( topo, "net", 0UL, "net_shred", 0UL );
   fd_topob_tile_in( topo, "net", 0UL, "wksp", "shred_net", 0UL, 0, 1 );
 
   /* Manual "privileged_init/unprivileged init" */
-  void * scratch      = fd_topo_obj_laddr( topo, topo_tile->tile_obj_id );
+  void * scratch        = fd_topo_obj_laddr( topo, topo_tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_net_ctx_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
+  fd_net_ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
   fd_memset( ctx, 0, sizeof(fd_net_ctx_t) );
-  ctx->free_tx.queue  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), topo_tile->xdp.free_ring_depth * sizeof(ulong) );
-  ctx->free_tx.depth  = topo_tile->xdp.free_ring_depth;
-  ctx->netdev_buf     = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_buf_sz );
-
+  ctx->free_tx.queue    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), topo_tile->xdp.free_ring_depth * sizeof(ulong) );
+  ctx->free_tx.depth    = topo_tile->xdp.free_ring_depth;
 
   FD_TEST( fd_topo_obj_laddr( topo, topo_tile->net.umem_dcache_obj_id )==dcache_mem );
   void * const umem_dcache         = fd_dcache_join( dcache_mem );
@@ -323,36 +344,42 @@ main( int     argc,
 
   /* Netdev table */
   FD_TEST( fd_topo_obj_laddr( topo, topo_tile->xdp.netdev_dbl_buf_obj_id )==netdev_dbl_buf_mem );
-  ctx->netdev_dbl_handle = fd_dbl_buf_join( netdev_dbl_buf_mem );
-  ctx->netdev_buf_sz     = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
-  ctx->netdev_buf        = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_buf_sz );
-  fd_netdev_tbl_new( ctx->netdev_buf, NETDEV_MAX, BOND_MASTER_MAX );
-  FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl_handle, ctx->netdev_buf ) );
+  ctx->netdev_tbl_dbl_handle = fd_dbl_buf_join( netdev_dbl_buf_mem );
+  ctx->netdev_tbl_local_sz   = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
+  ctx->netdev_tbl_local      = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_tbl_local_sz );
+  FD_TEST( fd_addrs_hmap_new( addrs_hmap_mem, addrs_max, addrs_lock_cnt, addrs_max, 123456UL ) );
+  FD_TEST( fd_netdev_new( ctx->netdev_tbl_local, addrs_hmap_mem, addrs_hmap_ele_mem, NETDEV_MAX, BOND_MASTER_MAX, addrs_max )==ctx->netdev_tbl_local );
+  FD_TEST( fd_netdev_join( &ctx->netdev_handle, ctx->netdev_tbl_local ) );
   /* GRE interface */
-  ctx->netdev_tbl_handle.dev_tbl[IF_IDX_GRE] = (fd_netdev_t) {
+  ctx->netdev_handle.dev_tbl[IF_IDX_GRE] = (fd_netdev_entry_t) {
     .if_idx = IF_IDX_GRE,
     .dev_type = ARPHRD_IPGRE,
     .gre_dst_ip = gre_outer_dst_ip,
     .gre_src_ip = gre_outer_src_ip
   };
   /* Eth0 interface */
-  ctx->netdev_tbl_handle.dev_tbl[IF_IDX_ETH0] = (fd_netdev_t) {
+  ctx->netdev_handle.dev_tbl[IF_IDX_ETH0] = (fd_netdev_entry_t) {
     .if_idx = IF_IDX_ETH0,
     .dev_type = ARPHRD_ETHER,
   };
   /* Eth1 interface */
-  ctx->netdev_tbl_handle.dev_tbl[IF_IDX_ETH1] = (fd_netdev_t) {
+  ctx->netdev_handle.dev_tbl[IF_IDX_ETH1] = (fd_netdev_entry_t) {
     .if_idx = IF_IDX_ETH1,
     .dev_type = ARPHRD_ETHER,
   };
   /* Lo interface */
-  ctx->netdev_tbl_handle.dev_tbl[IF_IDX_LO] = (fd_netdev_t) {
+  ctx->netdev_handle.dev_tbl[IF_IDX_LO] = (fd_netdev_entry_t) {
     .if_idx = IF_IDX_LO,
     .dev_type = ARPHRD_LOOPBACK,
   };
-  fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl_handle.dev_tbl[IF_IDX_ETH0].mac_addr, eth0_src_mac_addr, 6 );
-  fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl_handle.dev_tbl[IF_IDX_ETH1].mac_addr, eth1_src_mac_addr, 6 );
-  ctx->netdev_tbl_handle.hdr->dev_cnt = IF_IDX_GRE + 1;
+  fd_memcpy( (fd_netdev_entry_t *)ctx->netdev_handle.dev_tbl[IF_IDX_ETH0].mac_addr, eth0_src_mac_addr, 6 );
+  fd_memcpy( (fd_netdev_entry_t *)ctx->netdev_handle.dev_tbl[IF_IDX_ETH1].mac_addr, eth1_src_mac_addr, 6 );
+  ctx->netdev_handle.hdr->dev_cnt = IF_IDX_GRE + 1;
+
+  /* netdev addrs hashmap */
+  fd_netlink_t netlink;
+  fd_netlink_init( &netlink, 0 );
+  FD_TEST( !fd_netdev_netlink_load_addrs( &ctx->netdev_handle, &netlink  ) ) ;
 
   /* ctx->in*/
   rx_link->dcache = umem_frame0;
@@ -410,7 +437,8 @@ main( int     argc,
     .outer_ip4 = {
       .verihl      = FD_IP4_VERIHL( 4, 5 ),
       .protocol    = FD_IP4_HDR_PROTOCOL_GRE,
-      .net_tot_len = fd_ushort_bswap( 28 )
+      .net_tot_len = fd_ushort_bswap( 28 ),
+      .daddr       = FD_IP4_ADDR( 10, 0, 0, 1 )
     },
     .gre = {
       .flags_version = FD_GRE_HDR_FLG_VER_BASIC,
@@ -419,7 +447,8 @@ main( int     argc,
     .inner_ip4 = {
       .verihl      = FD_IP4_VERIHL( 4, 5 ),
       .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
-      .net_tot_len = fd_ushort_bswap( 28 )
+      .net_tot_len = fd_ushort_bswap( 28 ),
+      .daddr       = FD_IP4_ADDR( 192, 168, 123, 1 )
     },
     .udp = {
       .net_len   = fd_ushort_bswap( 8 ),
@@ -438,7 +467,8 @@ main( int     argc,
     .inner_ip4 = {
       .verihl      = FD_IP4_VERIHL( 4, 5 ),
       .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
-      .net_tot_len = fd_ushort_bswap( 28 )
+      .net_tot_len = fd_ushort_bswap( 28 ),
+      .daddr       = FD_IP4_ADDR(192, 168, 123, 1)
     },
     .udp = {
       .net_len   = fd_ushort_bswap( 8 ),
