@@ -929,11 +929,16 @@ net_rx_packet( fd_net_ctx_t * ctx,
                    ( iphdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) ) return;
 
   /* reverse path filtering (strict mode) */
-  if( FD_UNLIKELY( !net_tx_route( ctx, iphdr->saddr ) || !ctx->tx_op.src_ip ) ) {
+  if( FD_UNLIKELY( !net_tx_route( ctx, iphdr->saddr ) ||
+                   !ctx->tx_op.src_ip ) ) {
+    if( is_packet_gre ) ctx->metrics.rx_gre_inv_pkt_cnt++;
     return;
   }
   if( FD_UNLIKELY( is_packet_gre && !ctx->tx_op.use_gre ) ) {
     ctx->metrics.rx_gre_inv_pkt_cnt++;
+    return;
+  }
+  if( FD_UNLIKELY( !is_packet_gre && ctx->tx_op.use_gre ) ) {
     return;
   }
 
