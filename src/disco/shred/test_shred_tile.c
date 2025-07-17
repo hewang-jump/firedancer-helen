@@ -215,20 +215,51 @@ main( int     argc,
       },
       .data = { 0xFF, 0xFF, (uchar)i }
     };
+    FD_LOG_NOTICE(( "net_out_mem: %p, net_out_chunk: %lu, net_link_base: %p, net_chunk: %lu ", (void *)shred_ctx->net_out_mem, shred_ctx->net_out_chunk, net_link_base, net_chunk  ));
+
+
+    void * test = fd_chunk_to_laddr( shred_ctx->net_out_mem, shred_ctx->net_out_chunk );
+    FD_LOG_NOTICE(( "test: %p ", test ));
+
+    // fd_memcpy( fd_chunk_to_laddr( shred_ctx->net_out_mem, net_chunk ), &rx_pkt_templ, sizeof(rx_pkt_templ) );
     fd_memcpy( fd_chunk_to_laddr( net_link_base, net_chunk ), &rx_pkt_templ, sizeof(rx_pkt_templ) );
     ulong sig = fd_disco_netmux_sig( 0, 0, 0, DST_PROTO_SHRED, 42 );
     fd_mcache_publish( net_mcache, net_depth, net_seq, sig, net_chunk, sizeof(rx_pkt_templ), 0, 0, 0 );
     ulong const net_in_idx = fd_topo_find_tile_in_link( &config->topo, topo_shred_tile, "net_shred", 0UL );
     FD_TEST( net_in_idx!=ULONG_MAX );
     FD_TEST( 0==before_frag( shred_ctx, net_in_idx, net_seq, sig ) ); /* accepted */
-    net_seq   = fd_seq_inc( net_seq, 1UL );
-    net_chunk = fd_dcache_compact_next( net_chunk, sizeof(rx_pkt_templ), net_chunk0, net_wmark );
 
     /* TODO add here a test:
        make the shred tile send back the same packet, with the payload negated byte-wise
        verify on this side, by looking at shred_ctx-> ... */
 
+    FD_LOG_NOTICE(( "during_frag test %lu", i ));
+    fd_frag_meta_t * mline = net_mcache + fd_mcache_line_idx( net_seq, fd_mcache_depth(net_mcache) );
+    void * dcache_entry = (char *)fd_chunk_to_laddr_const( net_link_base, mline->chunk ) + mline->ctl;
+    // void * dcache_entry = fd_chunk_to_laddr( shred_ctx->net_out_mem, net_chunk );
 
+    // FD_LOG_NOTICE(( "net_link_base: %p, net_chunk: %lx, mline->chunk: %x, dcache_entry: %p, ctl: %u", net_link_base, net_chunk, mline->chunk, dcache_entry, mline->ctl ));
+    during_frag( shred_ctx, net_in_idx, 0, sig, net_chunk, sizeof(rx_pkt_templ), 0 );
+
+    FD_LOG_NOTICE(( "after_frag test %lu", i ));
+    // reset memory to 0
+    fd_memset( dcache_entry, 0, sizeof(rx_pkt_templ) );
+
+    fd_stem_context_t dummy_stem;
+    fd_frag_meta_t* dummy_stem_mcache_ptrs[1] = {net_mcache};
+    dummy_stem.mcaches = dummy_stem_mcache_ptrs;
+    ulong dummy_depth[1] = {net_depth};
+    dummy_stem.depths = dummy_depth;
+
+    shred_ctx->net_out_chunk = net_chunk;
+    FD_LOG_NOTICE(( "dcache_entry: %p", dcache_entry ));
+    shred_ctx->net_out_mem   = (fd_wksp_t *) net_link_base;
+    after_frag( shred_ctx, net_in_idx, 0, sig, 0, 0, 0, &dummy_stem );
+
+    FD_TEST( fd_memeq( dcache_entry, &rx_pkt_templ.data, 22 ) );
+
+    net_seq   = fd_seq_inc( net_seq, 1UL );
+    net_chunk = fd_dcache_compact_next( net_chunk, sizeof(rx_pkt_templ), net_chunk0, net_wmark );
 
   }
 
