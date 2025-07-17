@@ -339,6 +339,16 @@ during_frag( fd_shred_ctx_t * ctx,
              ulong            sz,
              ulong            ctl ) {
 
+  if( 1 ) {
+    void const * dcache_entry = fd_net_rx_translate_frag( &ctx->in[ in_idx ].net_rx, chunk, ctl, sz );
+    FD_LOG_NOTICE(( "during_frag-dcache_entry: %p", dcache_entry ));
+    ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
+    fd_memcpy( ctx->shred_buffer, (void *)((ulong)(dcache_entry)+hdr_sz), sz-hdr_sz );
+    ctx->shred_buffer_sz = sz-hdr_sz;
+    return;
+  }
+
+
   ctx->skip_frag = 0;
 
   ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -683,6 +693,16 @@ after_frag( fd_shred_ctx_t *    ctx,
             ulong               tsorig,
             ulong               _tspub,
             fd_stem_context_t * stem ) {
+  if( 1 ) {
+    ulong const chunk = ctx->net_out_chunk;
+    void * packet = fd_chunk_to_laddr( ctx->net_out_mem, chunk );
+    FD_LOG_NOTICE(( "packet: %p", packet ));
+    fd_memcpy( packet, ctx->shred_buffer, ctx->shred_buffer_sz );
+    fd_mcache_publish( stem->mcaches[ 0 ], stem->depths[ 0 ], seq, sig, chunk, sz, 0, 0, 0 );
+    ctx->net_out_chunk = fd_dcache_compact_next( chunk, ctx->shred_buffer_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
+    return;
+  }
+
   (void)seq;
   (void)sz;
   (void)tsorig;
