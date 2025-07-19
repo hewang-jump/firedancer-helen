@@ -42,6 +42,7 @@ fd_stem_publish( fd_stem_context_t * stem,
                  ulong               tspub ) {
   ulong * seqp = &stem->seqs[ out_idx ];
   ulong   seq  = *seqp;
+  FD_LOG_NOTICE(( "mcache: %p, depth: %lu, seq: %lu, sig: %lu, chunk: %lu, sz: %lu", (void *)stem->mcaches[ out_idx ], stem->depths[ out_idx ], seq, sig, chunk, sz ));
   fd_mcache_publish( stem->mcaches[ out_idx ], stem->depths[ out_idx ], seq, sig, chunk, sz, ctl, tsorig, tspub );
   stem->cr_avail[ out_idx ] -= stem->cr_decrement_amount;
   *stem->min_cr_avail        = fd_ulong_min( stem->cr_avail[ out_idx ], *stem->min_cr_avail );

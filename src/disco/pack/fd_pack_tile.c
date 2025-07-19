@@ -1,5 +1,6 @@
 #include "../tiles.h"
 
+#include "fd_microblock.h"
 #include "generated/fd_pack_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
@@ -475,6 +476,34 @@ after_credit( fd_pack_ctx_t *     ctx,
               int *               charge_busy ) {
   (void)opt_poll_in;
 
+  if( 1 ) {
+    int flags = FD_PACK_SCHEDULE_VOTE | FD_PACK_SCHEDULE_BUNDLE | FD_PACK_SCHEDULE_TXN;
+    fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->bank_out_mem, ctx->bank_out_chunk );
+    int i = fd_ulong_find_lsb( ctx->bank_idle_bitset );
+    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
+    // FD_LOG_NOTICE(( "schedule_cnt: %lu", schedule_cnt ));
+    // long now = fd_tickcount();
+    schedule_cnt = 1;
+    // long  now2   = fd_tickcount();
+    // ulong tsorig = (ulong)fd_frag_meta_ts_comp( now  ); /* A bound on when we observed bank was idle */
+    // ulong tspub  = (ulong)fd_frag_meta_ts_comp( now2 );
+
+    ulong chunk  = ctx->bank_out_chunk;
+    ulong msg_sz = schedule_cnt * sizeof(fd_txn_p_t);
+    fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)(microblock_dst+schedule_cnt);
+    trailer->bank = ctx->leader_bank;
+    trailer->microblock_idx = ctx->slot_microblock_cnt;
+    trailer->pack_idx = ctx->pack_idx;
+    trailer->pack_txn_idx = ctx->pack_txn_cnt;
+    trailer->is_bundle = !!(microblock_dst->flags & FD_TXN_P_FLAGS_BUNDLE);
+
+    ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
+    fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0, 0 );
+
+
+    return;
+  }
+
   if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return; /* It would take ages for this to hit LONG_MIN */
 
   long now = fd_tickcount();
@@ -576,6 +605,8 @@ after_credit( fd_pack_ctx_t *     ctx,
 #endif
     return;
   }
+
+  /* We are a leader */
 
   /* Am I in drain mode?  If so, check if I can exit it */
   if( FD_UNLIKELY( ctx->drain_banks ) ) {
@@ -1087,6 +1118,8 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_TEST( scratch );
 
   if( FD_UNLIKELY( tile->pack.max_pending_transactions >= USHORT_MAX-10UL ) ) FD_LOG_ERR(( "pack tile supports up to %lu pending transactions", USHORT_MAX-11UL ));
 

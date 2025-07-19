@@ -139,7 +139,7 @@ main( int     argc,
 
   for( ulong i=0UL; i<config->topo.wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
-    FD_LOG_NOTICE(( "Creating workspace %s (--page-cnt %lu, --page-sz %lu, --cpu-idx %lu)", wksp->name, wksp->page_cnt, wksp->page_sz, fd_shmem_cpu_idx( wksp->numa_idx ) ));
+    // FD_LOG_NOTICE(( "Creating workspace %s (--page-cnt %lu, --page-sz %lu, --cpu-idx %lu)", wksp->name, wksp->page_cnt, wksp->page_sz, fd_shmem_cpu_idx( wksp->numa_idx ) ));
     wksp->wksp = fd_wksp_new_anonymous( wksp->page_sz,  wksp->page_cnt, fd_shmem_cpu_idx( wksp->numa_idx ), wksp->name, 0UL );
     FD_TEST( wksp->wksp );
     ulong offset = fd_wksp_alloc( wksp->wksp, fd_topo_workspace_align(), wksp->known_footprint, 1UL );
@@ -167,7 +167,7 @@ main( int     argc,
   // initialize_stacks( config );  /* DO NOT USE - leave as reference */
 
   /* [tile-unit-test] unprivileged_init. */
-  FD_LOG_NOTICE(( "[tile-unit-test] before_frag" ));
+  // FD_LOG_NOTICE(( "[tile-unit-test] before_frag" ));
   ulong poh_shed_obj_id = fd_pod_query_ulong( config->topo.props, "poh_shred", ULONG_MAX );
   FD_TEST( poh_shed_obj_id!=ULONG_MAX );
   ulong * gossip_shred_version = fd_fseq_join( fd_topo_obj_laddr( &config->topo, poh_shed_obj_id ) );
@@ -215,13 +215,7 @@ main( int     argc,
       },
       .data = { 0xFF, 0xFF, (uchar)i }
     };
-    FD_LOG_NOTICE(( "net_out_mem: %p, net_out_chunk: %lu, net_link_base: %p, net_chunk: %lu ", (void *)shred_ctx->net_out_mem, shred_ctx->net_out_chunk, net_link_base, net_chunk  ));
 
-
-    void * test = fd_chunk_to_laddr( shred_ctx->net_out_mem, shred_ctx->net_out_chunk );
-    FD_LOG_NOTICE(( "test: %p ", test ));
-
-    // fd_memcpy( fd_chunk_to_laddr( shred_ctx->net_out_mem, net_chunk ), &rx_pkt_templ, sizeof(rx_pkt_templ) );
     fd_memcpy( fd_chunk_to_laddr( net_link_base, net_chunk ), &rx_pkt_templ, sizeof(rx_pkt_templ) );
     ulong sig = fd_disco_netmux_sig( 0, 0, 0, DST_PROTO_SHRED, 42 );
     fd_mcache_publish( net_mcache, net_depth, net_seq, sig, net_chunk, sizeof(rx_pkt_templ), 0, 0, 0 );
@@ -233,12 +227,9 @@ main( int     argc,
        make the shred tile send back the same packet, with the payload negated byte-wise
        verify on this side, by looking at shred_ctx-> ... */
 
-    FD_LOG_NOTICE(( "during_frag test %lu", i ));
     fd_frag_meta_t * mline = net_mcache + fd_mcache_line_idx( net_seq, fd_mcache_depth(net_mcache) );
     void * dcache_entry = (char *)fd_chunk_to_laddr_const( net_link_base, mline->chunk ) + mline->ctl;
-    // void * dcache_entry = fd_chunk_to_laddr( shred_ctx->net_out_mem, net_chunk );
 
-    // FD_LOG_NOTICE(( "net_link_base: %p, net_chunk: %lx, mline->chunk: %x, dcache_entry: %p, ctl: %u", net_link_base, net_chunk, mline->chunk, dcache_entry, mline->ctl ));
     during_frag( shred_ctx, net_in_idx, 0, sig, net_chunk, sizeof(rx_pkt_templ), 0 );
 
     FD_LOG_NOTICE(( "after_frag test %lu", i ));
@@ -252,7 +243,6 @@ main( int     argc,
     dummy_stem.depths = dummy_depth;
 
     shred_ctx->net_out_chunk = net_chunk;
-    FD_LOG_NOTICE(( "dcache_entry: %p", dcache_entry ));
     shred_ctx->net_out_mem   = (fd_wksp_t *) net_link_base;
     after_frag( shred_ctx, net_in_idx, 0, sig, 0, 0, 0, &dummy_stem );
 
