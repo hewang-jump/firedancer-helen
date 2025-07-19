@@ -3,6 +3,7 @@ $(call add-hdrs,fd_pack.h fd_est_tbl.h fd_compute_budget_program.h fd_microblock
 $(call add-objs,fd_pack,fd_ballet)
 $(call add-objs,fd_pack_tile,fd_disco)
 $(call add-objs,fd_pack_rebate_sum,fd_ballet)
+$(call make-unit-test,test_pack_tile,test_pack_tile,fdctl_shared fdctl_platform fd_disco fd_flamenco fd_ballet fd_tango fd_waltz fd_reedsol fd_util)
 $(call make-unit-test,test_compute_budget_program,test_compute_budget_program,fd_ballet fd_util)
 $(call make-unit-test,test_est_tbl,test_est_tbl,fd_ballet fd_util)
 $(call make-unit-test,test_pack_bitset,test_pack_bitset,fd_ballet fd_util)

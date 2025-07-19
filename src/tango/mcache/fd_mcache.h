@@ -307,6 +307,7 @@ fd_mcache_publish( fd_frag_meta_t * mcache,   /* Assumed a current local join */
                    ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
                    ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
   fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
+  FD_LOG_NOTICE(( "mcache: %p, seq: %lu, depth: %lu, meta: %p", (void *)mcache, seq, depth, (void *)meta ));
   FD_COMPILER_MFENCE();
   meta->seq    = fd_seq_dec( seq, 1UL );
   FD_COMPILER_MFENCE();
