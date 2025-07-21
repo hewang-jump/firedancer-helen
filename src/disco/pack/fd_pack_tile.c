@@ -1,6 +1,5 @@
 #include "../tiles.h"
 
-#include "fd_microblock.h"
 #include "generated/fd_pack_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
@@ -419,6 +418,7 @@ before_credit( fd_pack_ctx_t *     ctx,
   (void)stem;
 
   if( FD_UNLIKELY( (ctx->cur_spot!=NULL) & !ctx->is_bundle ) ) {
+    FD_LOG_ERR(( "before_credit-overrun" ));
     *charge_busy = 1;
 
     /* If we were overrun while processing a frag from an in, then
@@ -476,35 +476,10 @@ after_credit( fd_pack_ctx_t *     ctx,
               int *               charge_busy ) {
   (void)opt_poll_in;
 
-  if( 1 ) {
-    int flags = FD_PACK_SCHEDULE_VOTE | FD_PACK_SCHEDULE_BUNDLE | FD_PACK_SCHEDULE_TXN;
-    fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->bank_out_mem, ctx->bank_out_chunk );
-    int i = fd_ulong_find_lsb( ctx->bank_idle_bitset );
-    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
-    // FD_LOG_NOTICE(( "schedule_cnt: %lu", schedule_cnt ));
-    // long now = fd_tickcount();
-    schedule_cnt = 1;
-    // long  now2   = fd_tickcount();
-    // ulong tsorig = (ulong)fd_frag_meta_ts_comp( now  ); /* A bound on when we observed bank was idle */
-    // ulong tspub  = (ulong)fd_frag_meta_ts_comp( now2 );
-
-    ulong chunk  = ctx->bank_out_chunk;
-    ulong msg_sz = schedule_cnt * sizeof(fd_txn_p_t);
-    fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)(microblock_dst+schedule_cnt);
-    trailer->bank = ctx->leader_bank;
-    trailer->microblock_idx = ctx->slot_microblock_cnt;
-    trailer->pack_idx = ctx->pack_idx;
-    trailer->pack_txn_idx = ctx->pack_txn_cnt;
-    trailer->is_bundle = !!(microblock_dst->flags & FD_TXN_P_FLAGS_BUNDLE);
-
-    ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
-    fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0, 0 );
-
-
-    return;
+  if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) {
+    FD_LOG_ERR(( "after_credit skip_cnt: %ld",ctx->skip_cnt ));
+    return; /* It would take ages for this to hit LONG_MIN */
   }
-
-  if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return; /* It would take ages for this to hit LONG_MIN */
 
   long now = fd_tickcount();
 
@@ -563,10 +538,12 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->poll_cursor = poll_cursor;
   }
 
+  FD_LOG_NOTICE(( "after_credit-poll cursor: %d", ctx->poll_cursor ));
 
   /* If we time out on our slot, then stop being leader.  This can only
      happen in the first after_credit after a housekeeping. */
   if( FD_UNLIKELY( ctx->approx_wallclock_ns>=ctx->slot_end_ns && ctx->leader_slot!=ULONG_MAX ) ) {
+    FD_LOG_ERR(( "approx_wallclock_ns: %ld, slot_end_ns: %ld", ctx->approx_wallclock_ns, ctx->slot_end_ns ));
     *charge_busy = 1;
 
     fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
@@ -603,10 +580,12 @@ after_credit( fd_pack_ctx_t *     ctx,
       if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
     }
 #endif
+    FD_LOG_NOTICE(( "after_credit-Not a leader" ));
     return;
   }
 
   /* We are a leader */
+  FD_LOG_NOTICE(( "after_credit-We are a leader" ));
 
   /* Am I in drain mode?  If so, check if I can exit it */
   if( FD_UNLIKELY( ctx->drain_banks ) ) {
@@ -695,6 +674,8 @@ after_credit( fd_pack_ctx_t *     ctx,
 
   /* Try to schedule the next microblock. */
   if( FD_LIKELY( ctx->bank_idle_bitset ) ) { /* Optimize for schedule */
+    FD_LOG_NOTICE(( "after_credit-scheduling the next microblock" ));
+
     any_ready = 1;
 
     int i = fd_ulong_find_lsb( ctx->bank_idle_bitset );
@@ -723,10 +704,13 @@ after_credit( fd_pack_ctx_t *     ctx,
     }
 
     fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->bank_out_mem, ctx->bank_out_chunk );
+    FD_LOG_NOTICE(( "microblock_dst: %p", (void *)microblock_dst ));
     long schedule_duration = -fd_tickcount();
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
     schedule_duration      += fd_tickcount();
     fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
+
+    FD_TEST( schedule_cnt );
 
     if( FD_LIKELY( schedule_cnt ) ) {
       any_scheduled = 1;
@@ -810,9 +794,11 @@ during_frag( fd_pack_ctx_t * ctx,
              ulong           ctl FD_PARAM_UNUSED ) {
 
   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+  FD_LOG_NOTICE(( "during_frag-dcache_entry: %p", (void *)dcache_entry ));
 
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_POH: {
+    FD_LOG_NOTICE(( "during_frag-IN_KIND_POH" ));
       /* Not interested in stamped microblocks, only leader updates. */
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
 
@@ -839,6 +825,8 @@ during_frag( fd_pack_ctx_t * ctx,
   case IN_KIND_RESOLV: {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_RESOLVED_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+    FD_LOG_NOTICE(( "during_frag-IN_KIND_RESOLV" ));
 
     fd_txn_m_t * txnm = (fd_txn_m_t *)dcache_entry;
     ulong payload_sz = txnm->payload_sz;
@@ -957,6 +945,7 @@ after_frag( fd_pack_ctx_t *     ctx,
 
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_POH: {
+    FD_LOG_NOTICE(( "after_frag-IN_KIND_POH" ));
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
 
     long now_ticks = fd_tickcount();
@@ -1063,11 +1052,13 @@ after_frag( fd_pack_ctx_t *     ctx,
         ctx->current_bundle->bundle = NULL;
       }
     } else {
+      FD_LOG_NOTICE(( "after_frag-IN_KIND_RESOLV" ));
       ulong blockhash_slot = sig;
       ulong deleted;
       long insert_duration = -fd_tickcount();
       int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, blockhash_slot, &deleted );
       insert_duration      += fd_tickcount();
+      FD_TEST( result>=0 );
       FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
       ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
       fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
