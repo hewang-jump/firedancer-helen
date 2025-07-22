@@ -145,6 +145,7 @@ accs [ MAX_TEST_TXNS ] = {
   "Z"
 };
 
+#define MAX_PRIORITY (13.5)
 #define TICKS_PER_SLOT (64)
 #define TICK_DURATION_NS (6400)
 #define SLOT_DURATION_NS (TICKS_PER_SLOT * TICK_DURATION_NS)
@@ -166,19 +167,15 @@ config_t config[1];
    5^priority, so that even with a large stall, it should still schedule
    in decreasing priority order.  priority should be in (0, 13.5].
    Stores the created transaction in txn_scratch[ i ] and
-   payload_scratch[ i ].  If priority_fees is non-null, it will contain
-   the priority fee in lamports. If pack_cost_estimate is non-null, it
-   will contain the cost estimate used by pack when packing blocks. */
-static void
+   payload_scratch[ i ]. Return the priority fee*/
+static ulong
 make_transaction1( fd_txn_p_t * txnp,
                    ulong        i,
                    uint         compute,
                    uint         loaded_data_sz,
                    double       priority,
                    char const * writes,
-                   char const * reads,
-                   ulong *      priority_fees,
-                   ulong *      pack_cost_estimate ) {
+                   char const * reads ) {
   uchar * p = txnp->payload;
   uchar * p_base = p;
   fd_txn_t * t = TXN( txnp );
@@ -187,16 +184,16 @@ make_transaction1( fd_txn_p_t * txnp,
   fd_memcpy( p,                                   &i,               sizeof(ulong)                                    );
   fd_memcpy( p+sizeof(ulong),                     SIGNATURE_SUFFIX, FD_TXN_SIGNATURE_SZ - sizeof(ulong)-sizeof(uint) );
   fd_memcpy( p+FD_TXN_SIGNATURE_SZ-sizeof(ulong), &compute,         sizeof(uint)                                     );
-  p += FD_TXN_SIGNATURE_SZ;
-  t->transaction_version = FD_TXN_VLEGACY;
-  t->signature_cnt = 1;
-  t->signature_off = 1;
-  t->message_off = FD_TXN_SIGNATURE_SZ+1UL;
-  t->readonly_signed_cnt = 0;
+  p                         += FD_TXN_SIGNATURE_SZ;
+  t->transaction_version    = FD_TXN_VLEGACY;
+  t->signature_cnt          = 1;
+  t->signature_off          = 1;
+  t->message_off            = FD_TXN_SIGNATURE_SZ+1UL;
+  t->readonly_signed_cnt    = 0;
   ulong programs_to_include = 2UL; /* 1 for compute budget, 1 for "work" program */
-  t->readonly_unsigned_cnt = (uchar)(strlen( reads ) + programs_to_include);
-  t->acct_addr_cnt = (ushort)(1UL + strlen( reads ) + programs_to_include + strlen( writes ));
-  t->acct_addr_off = FD_TXN_SIGNATURE_SZ+1UL;
+  t->readonly_unsigned_cnt  = (uchar)(strlen( reads ) + programs_to_include);
+  t->acct_addr_cnt          = (ushort)(1UL + strlen( reads ) + programs_to_include + strlen( writes ));
+  t->acct_addr_off          = FD_TXN_SIGNATURE_SZ+1UL;
 
   /* Add the signer */
   *p = 's' + 0x80; fd_memcpy( p+1, &i, sizeof(ulong) ); memset( p+9, 'S', FD_TXN_ACCT_ADDR_SZ-9 ); p += FD_TXN_ACCT_ADDR_SZ;
@@ -215,30 +212,28 @@ make_transaction1( fd_txn_p_t * txnp,
     p += FD_TXN_ACCT_ADDR_SZ;
   }
 
-  t->recent_blockhash_off = 0;
-  t->addr_table_lookup_cnt = 0;
+  t->recent_blockhash_off         = 0;
+  t->addr_table_lookup_cnt        = 0;
   t->addr_table_adtl_writable_cnt = 0;
-  t->addr_table_adtl_cnt = 0;
-  t->instr_cnt = (ushort)(3UL + (ulong)fd_uint_popcnt( compute ));
-  uchar prog_start = (uchar)(1UL+strlen( writes ));
+  t->addr_table_adtl_cnt          = 0;
+  t->instr_cnt                    = 3U;
+  uchar prog_start                = (uchar)(1UL+strlen( writes ));
 
   t->instr[ 0 ].program_id = prog_start;
-  t->instr[ 0 ].acct_cnt = 0;
-  t->instr[ 0 ].data_sz = 5;
-  t->instr[ 0 ].acct_off = (ushort)(p - p_base);
-  t->instr[ 0 ].data_off = (ushort)(p - p_base);
-  int j = 0;
+  t->instr[ 0 ].acct_cnt   = 0;
+  t->instr[ 0 ].data_sz    = 5;    // "2" and then "compute"
+  t->instr[ 0 ].acct_off   = (ushort)(p - p_base);
+  t->instr[ 0 ].data_off   = (ushort)(p - p_base);
 
   /* Write instruction data */
   *p = 2; fd_memcpy( p+1, &compute, sizeof(uint) );
   p += 5UL;
 
   t->instr[ 1 ].program_id = prog_start;
-  t->instr[ 1 ].acct_cnt = 0;
-  t->instr[ 1 ].data_sz = 9;
-  t->instr[ 1 ].acct_off = (ushort)(p - p_base);
-  t->instr[ 1 ].data_off = (ushort)(p - p_base);
-  j = 1;
+  t->instr[ 1 ].acct_cnt   = 0;
+  t->instr[ 1 ].data_sz    = 9;     // "2" and then "rewards_per_cu"
+  t->instr[ 1 ].acct_off   = (ushort)(p - p_base);
+  t->instr[ 1 ].data_off   = (ushort)(p - p_base);
 
   /* 3 corresponds to SetComputeUnitPrice */
   ulong rewards_per_cu = (ulong) (pow( 5.0, priority )*10000.0 / (double)compute);
@@ -246,54 +241,37 @@ make_transaction1( fd_txn_p_t * txnp,
   p += 9UL;
 
   t->instr[ 2 ].program_id = prog_start;
-  t->instr[ 2 ].acct_cnt = 0;
-  t->instr[ 2 ].data_sz = 5;
-  t->instr[ 2 ].acct_off = (ushort)(p - p_base);
-  t->instr[ 2 ].data_off = (ushort)(p - p_base);
-  j = 2;
+  t->instr[ 2 ].acct_cnt   = 0;
+  t->instr[ 2 ].data_sz    = 5;     // "4" and then "loaded_data_sz"
+  t->instr[ 2 ].acct_off   = (ushort)(p - p_base);
+  t->instr[ 2 ].data_off   = (ushort)(p - p_base);
 
   /* 4 corresponds to SetLoadedAccountsDataSizeLimit */
   *p = 4; fd_memcpy( p+1, &loaded_data_sz, sizeof(uint) );
-  p += 5UL;
+  p  += 5UL;
 
-  j = 3UL;
-  for( uint i = 0U; i<32U; i++ ) {
-    if( compute & (1U << i) ) {
-      *p = (uchar)i;
-      t->instr[ j ].program_id = (uchar)(prog_start + 1);
-      t->instr[ j ].acct_cnt = 0;
-      t->instr[ j ].data_sz = 1;
-      t->instr[ j ].acct_off = (ushort)(p - p_base);
-      t->instr[ j ].data_off = (ushort)(p - p_base);
-      j++;
-      p++;
-    }
-  }
   txnp->payload_sz = (ulong)(p-p_base);
   uint flags;
-  fd_ulong_store_if( !!priority_fees, priority_fees, (rewards_per_cu * compute + 999999UL)/1000000UL );
-
-  ulong cost = fd_pack_compute_cost( TXN( txnp ), txnp->payload, &flags, NULL, NULL, NULL, NULL);
+  ulong opt_fee;
+  ulong cost = fd_pack_compute_cost( TXN( txnp ), txnp->payload, &flags, NULL, &opt_fee, NULL, NULL);
   FD_TEST( cost );
 
-  fd_ulong_store_if( !!pack_cost_estimate, pack_cost_estimate, cost );
+  return opt_fee;
 }
 
 /* From test_pack.c: call make_txn1(...).
    Txn_i has priority strictly greater Txn_j if i<j.
 */
-static void
+static ulong
 make_transaction( fd_txn_p_t * txnp,
                   ulong        i,
                   const char * w_accs,
                   const char * r_accs ) {
-  FD_LOG_NOTICE(( "make_transaction" ));
-  ulong reward;
-  ulong cost_estimate;
-
-  double priority = (1.0 - (double)i/(double)MAX_TEST_TXNS) * 13.4;
-
-  make_transaction1( txnp, i, 500U, 500U, priority, w_accs, r_accs, &reward, &cost_estimate );
+  double priority     = MAX_PRIORITY - (double)i*0.2;
+  FD_TEST( priority>0 );
+  ulong  priority_fee = make_transaction1( txnp, i, 500U, 500U, priority, w_accs, r_accs );
+  FD_LOG_NOTICE(( "make_transaction. priority: %lf, reward: %lu", priority, priority_fee ));
+  return priority_fee;
 }
 
 static void
@@ -302,7 +280,7 @@ make_leader( fd_became_leader_t * leader ) {
   FD_LOG_NOTICE(( "make_leader" ));
   *leader = (fd_became_leader_t) {
     .slot_start_ns           = fd_log_wallclock(),
-    .slot_end_ns             = fd_log_wallclock() + SLOT_DURATION_NS - (SLOT_DURATION_NS>>2),
+    .slot_end_ns             = fd_log_wallclock() + SLOT_DURATION_NS,
     .max_microblocks_in_slot = MAX_MICROBLOCKS_PER_SLOT,
     .ticks_per_slot          = TICKS_PER_SLOT,
     .epoch                   = epoch,
@@ -312,6 +290,40 @@ make_leader( fd_became_leader_t * leader ) {
   };
 }
 
+/* Print the treap with all txns inserted */
+void FD_FN_UNUSED
+print_insert( fd_pack_ctx_t * pack_ctx ) {
+  char empty_w_acc[1] = {0};
+  ulong delete_cnt;
+  ulong prev_reward = ULONG_MAX;
+
+  for( int txn_i=0; txn_i<MAX_TEST_TXNS; txn_i++ ) {
+    FD_LOG_NOTICE(( "R acc: %s", accs[ txn_i ] ));
+
+    fd_txn_e_t * cur_spot = fd_pack_insert_txn_init( pack_ctx->pack );
+    ulong curr_reward = make_transaction( &txn_scratch[txn_i], (ulong)txn_i, empty_w_acc, accs[ txn_i ] );
+    FD_TEST( curr_reward < prev_reward );
+    prev_reward = curr_reward;
+
+    fd_txn_p_t * txnp     = &txn_scratch[txn_i];
+    fd_txn_t   * txn      = TXN( txnp );
+    txnp_sz[txn_i]        = txnp->payload_sz;
+    txnt_sz[txn_i]        = (ushort) fd_txn_footprint( txn->instr_cnt, txn->addr_table_adtl_cnt );
+    fd_memcpy( cur_spot->txnp->payload, txnp, txnp_sz[txn_i] );
+    fd_memcpy( TXN(cur_spot->txnp),     txn,  txnt_sz[txn_i] );
+    fd_pack_insert_txn_fini( pack_ctx->pack, cur_spot, 0, &delete_cnt );
+  }
+
+  treap_t * txn_treap       = &pack_ctx->pack->pending[0];
+  fd_pack_ord_txn_t  * pool = pack_ctx->pack->pool;
+  treap_rev_iter_t prev     = treap_idx_null();
+  for( treap_rev_iter_t _cur = treap_rev_iter_init( txn_treap, pool ); !treap_rev_iter_done( _cur ); _cur=prev ) {
+    /* Capture next so that we can delete while we iterate. */
+    prev = treap_rev_iter_next( _cur, pool );
+    fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
+    FD_LOG_HEXDUMP_NOTICE(( "txn payload in treap", cur->txn->payload+0xa0, 8 ));   // print the read accounts
+  }
+}
 
 int
 main( int     argc,
@@ -399,7 +411,6 @@ main( int     argc,
   ulong const poh_chunk0      = fd_dcache_compact_chunk0( poh_link_base, poh_link->dcache );
   ulong const poh_wmark       = fd_dcache_compact_wmark ( poh_link_base, poh_link->dcache, poh_link->mtu );
   ulong       poh_chunk       = poh_chunk0;
-  FD_LOG_NOTICE(( "Poh: link_base: %p, depth: %lu, chunk0: %lu, wmark: %lu", poh_link_base, poh_depth, poh_chunk0, poh_wmark ));
 
   /* Resolve in-link */
   ulong resolve_link_idx          = fd_topo_find_link( &config->topo, "resolv_pack", 0UL );
@@ -413,8 +424,6 @@ main( int     argc,
   ulong const resolve_chunk0      = fd_dcache_compact_chunk0( resolve_link_base, resolve_link->dcache );
   ulong const resolve_wmark       = fd_dcache_compact_wmark ( resolve_link_base, resolve_link->dcache, resolve_link->mtu );
   ulong       resolve_chunk       = resolve_chunk0;
-  FD_LOG_NOTICE(( "Resolve: link_base: %p, depth: %lu, chunk0: %lu, wmark: %lu", resolve_link_base, resolve_depth, resolve_chunk0, resolve_wmark ));
-
 
   /* Bank out-link */
   ulong bank_link_idx          = fd_topo_find_link( &config->topo, "pack_bank", 0UL );
@@ -425,9 +434,8 @@ main( int     argc,
   ulong bank_seq               = 0UL;
   fd_frag_meta_t * bank_mcache = bank_link->mcache;
   ulong const bank_depth       = fd_mcache_depth( bank_mcache );
-  ulong const bank_chunk0      = fd_dcache_compact_chunk0( bank_link_base, bank_link->dcache );
-  ulong const bank_wmark       = fd_dcache_compact_wmark ( bank_link_base, bank_link->dcache, bank_link->mtu );
-  FD_LOG_NOTICE(( "bank: bank_mcache: %p, link_base: %p, seq: %lu, depth: %lu, chunk0: %lu, wmark: %lu", (void *)bank_mcache, (void *)bank_link_base, bank_seq, bank_depth, bank_chunk0, bank_wmark ));
+  // ulong const bank_chunk0      = fd_dcache_compact_chunk0( bank_link_base, bank_link->dcache );
+  // ulong const bank_wmark       = fd_dcache_compact_wmark ( bank_link_base, bank_link->dcache, bank_link->mtu );
 
   /* Some Hacks: */
   pack_ctx->use_consumed_cus = 0; // Not rebate. avoid skipping txnes
