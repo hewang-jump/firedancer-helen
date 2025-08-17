@@ -5,10 +5,11 @@
 #include "fd_pack_cost.h"
 #include "fd_microblock.h"
 #include "fd_pack_rebate_sum.h"
+#include <math.h>
 
 struct txn_ref {
-  double prio;
-  int    txn_i;
+  float prio;
+  int   txn_i;
 
   /* treap field */
   ushort parent_cidx;
@@ -26,12 +27,11 @@ typedef struct txn_ref txn_ref_t;
 #define POOL_NEXT  parent_cidx
 #include "../../util/tmpl/fd_pool.c"
 
-/* TODO: check if possible to use float for priority  */
 #define TREAP_NAME       txn_ref_treap
 #define TREAP_T          txn_ref_t
-#define TREAP_QUERY_T    double
-#define TREAP_CMP(q,e)   (((double)(q)) < ((double)((e)->prio)) ? -1 : (((double)(q)) > ((double)((e)->prio))) ? 1 : 0)
-#define TREAP_LT(e0,e1)  (((double)((e0)->prio)) < ((double)((e1)->prio)))
+#define TREAP_QUERY_T    float
+#define TREAP_CMP(q,e)   (((float)(q)) < ((float)((e)->prio)) ? -1 : (((float)(q)) > ((float)((e)->prio))) ? 1 : 0)
+#define TREAP_LT(e0,e1)  (((float)((e0)->prio)) < ((float)((e1)->prio)))
 #define TREAP_IDX_T      ushort
 #define TREAP_PARENT     parent_cidx
 #define TREAP_LEFT       left_cidx
@@ -108,10 +108,10 @@ static uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 10, 10 ) ] __attribute__((al
 #define MAX_TEST_TXNS (26)
 #define MAX_TEST_PENDING_TXNS (65524)
 #define CRANK_WKSP_SIZE (2097152UL)   // 2MB
-static fd_txn_e_t txn_scratch[ MAX_TEST_TXNS ] = {0};
+static fd_txn_p_t txn_scratch[ MAX_TEST_TXNS ] = {0};
 static ulong      txnp_sz[ MAX_TEST_TXNS     ] = {0};
 static ulong      txnt_sz[ MAX_TEST_TXNS     ] = {0};
-static double     txn_prio[ MAX_TEST_TXNS ]    = {0.0};
+static float      txn_prio[ MAX_TEST_TXNS ]    = {0.0};
 static uchar      crank_scratch[ CRANK_WKSP_SIZE ]__attribute__((aligned((FD_SHMEM_NORMAL_PAGE_SZ)))) = {0};
 
 #define TXN_REF_SCRATCH_SZ (MAX_TEST_PENDING_TXNS*sizeof(txn_ref_t))
@@ -133,7 +133,8 @@ static const fd_acct_addr_t * validator_identity_pk         = (const fd_acct_add
 static const char           * block_engine_commission_pk    = /*                    */"The_block_engine_commision_pk__";
 static const uchar            block_engine_commission_pct   = /*                    */2;
 
-#define MAX_PRIORITY (13.5)
+static const float max_priority = 13.5;
+// #define MAX_PRIORITY (13.5)
 #define TICKS_PER_SLOT (64)
 #define TICK_DURATION_NS (6400)
 #define SLOT_DURATION_NS (TICKS_PER_SLOT * TICK_DURATION_NS)
@@ -289,7 +290,7 @@ print_txn_ref_treap( txn_ref_treap_t * treap,
     /* Capture next so that we can delete while we iterate. */
     prev = txn_ref_treap_rev_iter_next( _cur, pool );
     txn_ref_t * cur = txn_ref_treap_rev_iter_ele( _cur, pool );
-    FD_LOG_NOTICE(( "cur prio: %lf, txn_i: %d", cur->prio, cur->txn_i ));
+    FD_LOG_NOTICE(( "cur prio: %f, txn_i: %d", (double)cur->prio, cur->txn_i ));
   }
   FD_LOG_NOTICE(( "txn_ref_treap end-------------------------" ));
 }
@@ -450,7 +451,6 @@ bank_out_check( test_ctx_t     * test_ctx,
                 fd_pack_ctx_t  * ctx ) {
   /* TODO: verify that we have actually timed out on the current leader slot */
   if( ctx->leader_slot==ULONG_MAX ) {
-    // FD_LOG_NOTICE(( "bank_out_check-timed out" ));
     return 0;
   }
 
@@ -504,8 +504,7 @@ bank_out_check( test_ctx_t     * test_ctx,
   FD_TEST( ref_i+locals->txn_cnt<=MAX_TEST_TXNS );
 
   for( ulong i=0; i<locals->txn_cnt; i++ ){
-    fd_txn_e_t * txne_out_ref = &txn_scratch[ ref_i ];
-    fd_txn_p_t * txnp_out_ref = txne_out_ref->txnp;
+    fd_txn_p_t * txnp_out_ref = &txn_scratch[ ref_i ];
     ulong payload_sz_ref  = txnp_sz[ ref_i ];
     ulong txn_t_sz_ref    = txnt_sz[ ref_i ];
 
@@ -553,9 +552,7 @@ resolve_publish_txn( test_ctx_t * test_ctx,
                      test_link_t * resolv_pack_link ) {
   int txn_i = test_ctx->locals->txn_i;
   if( txn_i >= MAX_TEST_TXNS  ) return 0;
-  // FD_LOG_NOTICE(( "resolve_publish_txn. txn_i: %d", txn_i ));
-  fd_txn_e_t * txne    = &txn_scratch[ txn_i ];
-  fd_txn_p_t * txnp    = txne->txnp;
+  fd_txn_p_t * txnp    = &txn_scratch[ txn_i ];
   fd_txn_t   * txn     = TXN( txnp );
   txnp_sz[ txn_i ]     = txnp->payload_sz;
   txnt_sz[ txn_i ]     = (ushort) fd_txn_footprint( txn->instr_cnt, txn->addr_table_adtl_cnt );
@@ -638,8 +635,7 @@ resolve_df_check( test_ctx_t    * test_ctx,
                   fd_pack_ctx_t * ctx ) {
   tile_test_locals_t * locals = test_ctx->locals;
   int ref_i = locals->txn_i;
-  fd_txn_e_t * txne = &txn_scratch[ ref_i ];
-  fd_txn_p_t * txnp = txne->txnp;
+  fd_txn_p_t * txnp = &txn_scratch[ ref_i ];
   if( !ctx->cur_spot ) {
     FD_LOG_WARNING(( "insert txn init failed" ));
     return -1;
@@ -860,10 +856,9 @@ populate_test_vectors( test_ctx_t * test_ctx FD_PARAM_UNUSED ) {
   /* Txn_i has priority strictly greater Txn_j if i<j,
      where priority is in (0,13.5] */
   for( ulong i=0; i<MAX_TEST_TXNS; i++ ) {
-    double priority = MAX_PRIORITY - (double)i*0.2;
-    fd_txn_e_t * txne = &txn_scratch[ i ];
-    fd_txn_p_t * txnp = txne->txnp;
-    make_transaction( txnp, i, 500U, 500U, priority, empty_w_acc, accs[ i ] );
+    float priority = max_priority - (float)i*(float)0.2;
+    fd_txn_p_t * txnp = &txn_scratch[ i ];
+    make_transaction( txnp, i, 500U, 500U, (double)priority, empty_w_acc, accs[ i ] );
     ++signer;
     txn_prio[ i ] = priority;
   }
