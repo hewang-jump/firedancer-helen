@@ -43,16 +43,16 @@ struct frag_params {
 };
 
 struct test_callbacks {
-  /* callbacks defined at the beginning of each test run */
+  /* callbacks defined at the beginning of a test run */
   int (*bc_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );
   int (*ac_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );
 
-  /* callbacks defined by the input link of each test loop */
+  /* callbacks updated by the input link of each test loop */
   int (*bf_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );
   int (*df_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );
   int (*af_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );
 
-  /* output links that expect frag */
+  /* output links that expect frag, updated at each test loop */
   test_link_t * bc_output_links[ TEST_LINKS_OUT_CNT ];  // links that expect before_credit to produce frags
   int           bc_output_links_cnt;
   test_link_t * ac_output_links[ TEST_LINKS_OUT_CNT ];  // links that expect after_credit to produce frags
@@ -181,35 +181,41 @@ init_test_link_in( fd_topo_t     * topo,
 }
 
 void
-update_test_link_callback( test_link_t * test_link,
-                           int callback_fn_num,
-                           ulong (*pub_or_sig)( test_ctx_t *, test_link_t *   ),
-                           int   (*check)(      test_ctx_t *, TEST_TILE_CTX_TYPE * ) ) {
+update_in_test_link_callback( test_link_t * test_link,
+                              int callback_fn_num,
+                              ulong (*pub_or_sig)( test_ctx_t *, test_link_t *   ),
+                              int   (*check)(      test_ctx_t *, TEST_TILE_CTX_TYPE * ) ) {
+  if( !test_link->is_input_link ) FD_LOG_ERR(( "update_in_test_link_callback failed: test_link is not an input/producer/upstream link" ));
   switch( callback_fn_num ) {
     case CALLBACK_FN_BF:
-      FD_TEST( test_link->is_input_link );
       test_link->bf_check = check;
       break;
     case CALLBACK_FN_DF:
-      FD_TEST( test_link->is_input_link );
       test_link->df_check = check;
       break;
     case CALLBACK_FN_AF:
-      FD_TEST( test_link->is_input_link );
       test_link->af_check = check;
       break;
     case CALLBACK_FN_PUB:
-      FD_TEST( test_link->is_input_link );
       test_link->publish  = pub_or_sig;
       break;
     case CALLBACK_FN_SIG:
-      FD_TEST( test_link->is_input_link );
       test_link->make_sig = pub_or_sig;
       break;
     default:
       FD_LOG_ERR(( "unsupported callback function number: %d", callback_fn_num ));
       break;
   }
+}
+
+void
+update_out_test_link_callback( test_link_t * test_link,
+                               int callback_fn_num,
+                               int (*output_verifier)( test_ctx_t *, TEST_TILE_CTX_TYPE *, test_link_t * ) ) {
+  if( test_link->is_input_link ) FD_LOG_ERR(( "update_out_test_link_callback failed: test_link is not an output/consumer/downstream link" ));
+  if( callback_fn_num!=CALLBACK_FN_OUTVER )  FD_LOG_ERR(( "unsupported callback function number: %d", callback_fn_num ));
+
+  test_link->output_verifier = output_verifier;
 }
 
 void
@@ -239,8 +245,9 @@ check_output( int callback_fn_num,
 }
 
 /* Invoke the output verifier callbacks for tile callbacks specified
-   by callback_fn_num. */
-static int
+   by callback_fn_num.  Can be unused if tile output links are not
+   tested. */
+static int FD_FN_UNUSED
 output_verify( int callback_fn_num,
                TEST_TILE_CTX_TYPE * ctx,
                test_ctx_t         * test_ctx ) {
@@ -365,8 +372,9 @@ upstream_produce( TEST_TILE_CTX_TYPE    *  ctx,
   return 1;
 }
 
-/* Select an output link according to the test_ctx and ctx. If an output
-   link is selected, update test_ctx and the callbacks */
+/* Select output links according to the test_ctx and ctx.  The
+   select_out_links callback should call check_output if it expects
+   the tested tile to produce frags to a downstream link.  */
 static void
 downstream_select( TEST_TILE_CTX_TYPE    *  ctx,
                    test_ctx_t       *  test_ctx,
@@ -380,12 +388,12 @@ downstream_select( TEST_TILE_CTX_TYPE    *  ctx,
 
 
 void
-tile_test_run( TEST_TILE_CTX_TYPE     *  ctx,
-               fd_stem_context_t *  stem FD_PARAM_UNUSED,
-               test_link_t       ** test_links,
-               test_ctx_t        *  test_ctx,
-               ulong                loop_cnt,
-               ulong                housekeeping_interval ) {
+tile_test_run( TEST_TILE_CTX_TYPE *  ctx,
+               fd_stem_context_t  *  stem FD_PARAM_UNUSED,
+               test_link_t        ** test_links,
+               test_ctx_t         *  test_ctx,
+               ulong                 loop_cnt,
+               ulong                 housekeeping_interval FD_PARAM_UNUSED ) {
   frag_params_t frag_params;
   init_frag_params( &frag_params );
   init_test_callbacks();

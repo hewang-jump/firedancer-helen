@@ -269,14 +269,14 @@ fd_tile_unit_test_init( char const *         default_topo_config_path,
          tile_test_run( ctx, &stem, test_links, &test_ctx, 12, 6 );
 
          // Tile test run 2
-         update_test_link_callback( &input_link, CALLBACK_FN_PUB, publish2, NULL );
+         update_in_test_link_callback( &input_link, CALLBACK_FN_PUB, publish2, NULL );
          reset_test_env( &test_ctx, &stem, test_links,
                          stress_test_select_in_link, stress_test_select_out_link, bc_check2, ac_check2 );
          example_reset( &test_ctx, ctx, 1, 0 );
          tile_test_run( ctx, &stem, test_links, &test_ctx, 200000, 1000 );
 
          // Tile test run 3
-         update_test_link_callback
+         update_in_test_link_callback
          reset_test_env...
          example_reset...
          tile_test_run...
@@ -323,7 +323,7 @@ struct test_link {
    int (*output_verifier) ( test_ctx_t *, TEST_TILE_CTX_TYPE *, test_link_t * ); // callback to verify an output
 };
 
-/* For updating a callback for a test link in update_test_link_callback */
+/* For specifying callbacks for a test link */
 enum test_callback_fn_num {
    CALLBACK_FN_BC     = 0,    // before_credit
    CALLBACK_FN_AC     = 1,    // after_credit
@@ -331,7 +331,8 @@ enum test_callback_fn_num {
    CALLBACK_FN_DF     = 3,    // during_frag
    CALLBACK_FN_AF     = 4,    // after_frag
    CALLBACK_FN_PUB    = 5,    // publish
-   CALLBACK_FN_SIG    = 6     // make_sign
+   CALLBACK_FN_SIG    = 6,    // make_sign
+   CALLBACK_FN_OUTVER = 7     // output verifier
 };
 
 /* test_ctx_t contains both common testing infrastructure and
@@ -394,14 +395,21 @@ init_test_link_in( fd_topo_t     * topo,
                    int (*af_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ) );
 
 
-/* Update one of the test link's callback.  Only one of pub_or_sig and
-   check will be used, depending on the callback_fn_num (must be one
-   of test_callback_fn_num above) */
+/* Update one of the input test link's callback.  Only one of
+   pub_or_sig and check will be used, depending on the
+   callback_fn_num (must be one of test_callback_fn_num above) */
 void
-update_test_link_callback( test_link_t * test_link,
-                           int callback_fn_num,
-                           ulong (*pub_or_sig)( test_ctx_t *, test_link_t *   ),
-                           int (*check)(        test_ctx_t *, TEST_TILE_CTX_TYPE * ) );
+update_in_test_link_callback( test_link_t * test_link,
+                              int callback_fn_num,
+                              ulong (*pub_or_sig)( test_ctx_t *, test_link_t *   ),
+                              int (*check)(        test_ctx_t *, TEST_TILE_CTX_TYPE * ) );
+
+/* Update one of the output test link's callback.  callback_fn_num
+   must be CALLBACK_FN_OUTVER. */
+void
+update_out_test_link_callback( test_link_t * test_link,
+                               int callback_fn_num,
+                               int (*output_verifier)( test_ctx_t *, TEST_TILE_CTX_TYPE *, test_link_t * ) );
 
 
 /* Used in select_output_links callback when the tested tile is
@@ -410,7 +418,7 @@ update_test_link_callback( test_link_t * test_link,
    CALLBACK_FN_AF.  The tile_test_run will invoke the output_verifier
    callback defined in the test_link after the specified tile
    callback to verify output.  */
-static void
+void
 check_output( int callback_fn_num,
               test_link_t * test_link );
 
