@@ -665,33 +665,34 @@ xsk_recv( test_ctx_t  * test_ctx ) {
 
 /* Select output link, and receive a packet */
 static void
-select_rx_path_out_link( test_link_t  ** test_links,
-                         test_ctx_t   * test_ctx,
-                         fd_net_ctx_t * ctx FD_PARAM_UNUSED ) {
+select_rx_path_out_links( test_link_t  ** test_links,
+                          test_ctx_t   * test_ctx,
+                          fd_net_ctx_t * ctx FD_PARAM_UNUSED ) {
   xsk_recv( test_ctx );
-  test_ctx->out_link = test_links[ TEST_LINK_RX ];   // net_quic
+  check_output( CALLBACK_FN_BC, test_links[ TEST_LINK_RX ] );
 }
 
 /* before_credit check for net_quic output link. Verify the published packet. */
 static int
-quic_bc_check( test_ctx_t   * test_ctx,
-               fd_net_ctx_t * ctx FD_PARAM_UNUSED ) {
-  fd_frag_meta_t * mline = test_ctx->out_link->mcache + fd_mcache_line_idx( test_ctx->out_link->prod_seq, test_ctx->out_link->depth );
+quic_out_check( test_ctx_t   * test_ctx,
+                fd_net_ctx_t * ctx FD_PARAM_UNUSED,
+                test_link_t  * net_quic_link ) {
+  fd_frag_meta_t * mline = net_quic_link->mcache + fd_mcache_line_idx( net_quic_link->prod_seq, net_quic_link->depth );
   if( mline->sz!=sizeof(pkt_t) ) {
     FD_LOG_WARNING(( "output sz unmatched. sz: %u, expected: %lu", mline->sz, sizeof(pkt_t) ));
     return -1;
   }
-  ulong out_mem = (ulong)fd_chunk_to_laddr( (void *)test_ctx->out_link->base, mline->chunk ) + mline->ctl;
+  ulong out_mem = (ulong)fd_chunk_to_laddr( (void *)net_quic_link->base, mline->chunk ) + mline->ctl;
   if( !fd_memeq( (void *)out_mem, &rx_pkt[ test_ctx->locals->rx_pkt_ref_idx ], sizeof(pkt_t) ) ) {
     FD_LOG_HEXDUMP_WARNING(( "output", (void *)out_mem, mline->sz ));
     FD_LOG_HEXDUMP_WARNING(( "reference", &rx_pkt[ test_ctx->locals->rx_pkt_ref_idx ], sizeof(pkt_t) ));
-    FD_LOG_WARNING(( "out_link base: %p, chunk: %u", test_ctx->out_link->base, mline->chunk ));
+    FD_LOG_WARNING(( "out_link base: %p, chunk: %u", net_quic_link->base, mline->chunk ));
     FD_LOG_WARNING(( "RX pkt unmatched" ));
     return -1;
   }
   // FD_LOG_NOTICE(( "RX pkt verified" ));
 
-  test_ctx->out_link->prod_seq = fd_seq_inc( test_ctx->out_link->prod_seq, 1 );
+  net_quic_link->prod_seq = fd_seq_inc( net_quic_link->prod_seq, 1 );
   return 0;
 }
 
@@ -772,12 +773,10 @@ int main( int     argc,
   FD_TEST( net_tx_route( ctx, FD_IP4_ADDR( 1,1,1,1 ), &is_gre_inf )==0 );
 
   test_link_t tx_link = {0};
-  init_test_link( &config->topo, &tx_link, "quic_net", ctx, xdp_find_in_idx,
-                  quic_publish, quic_make_sig, NULL, NULL, quic_bf_check, NULL, xsk_af_check );
-
+  init_test_link_in( &config->topo, &tx_link, "quic_net", ctx, xdp_find_in_idx,
+                    quic_publish, quic_make_sig, quic_bf_check, NULL, xsk_af_check );
   test_link_t rx_link = {0};
-  init_test_link( &config->topo, &rx_link, "net_quic", ctx, xdp_find_in_idx,
-                  NULL, NULL, quic_bc_check, NULL, NULL, NULL, NULL );
+  init_test_link_out( &config->topo, &rx_link, "net_quic", quic_out_check );
 
   test_link_t * test_links[ 2 ] = {0};
   test_links[ TEST_LINK_RX ] = &rx_link;
@@ -803,12 +802,12 @@ int main( int     argc,
   populate_test_vectors( &test_ctx );
 
   FD_LOG_NOTICE(( "[tile-unit-test] Test Normal I/O" ));
-  reset_test_env( &test_ctx, &stem, test_links, select_tx_path_in_link, select_rx_path_out_link );
+  reset_test_env( &test_ctx, &stem, test_links, select_tx_path_in_link, select_rx_path_out_links, NULL, NULL );
   xdp_reset( &test_ctx, ctx );
   tile_test_run( ctx, &stem, test_links, &test_ctx, TEST_MAX_PKTS*2, TEST_MAX_PKTS );
 
   FD_LOG_NOTICE(( "[tile-unit-test] Test Normal I/O Again" ));
-  reset_test_env( &test_ctx, &stem, test_links, select_tx_path_in_link, select_rx_path_out_link );
+  reset_test_env( &test_ctx, &stem, test_links, select_tx_path_in_link, select_rx_path_out_links, NULL, NULL );
   xdp_reset( &test_ctx, ctx );
   tile_test_run( ctx, &stem, test_links, &test_ctx, TEST_MAX_PKTS*2, TEST_MAX_PKTS );
 

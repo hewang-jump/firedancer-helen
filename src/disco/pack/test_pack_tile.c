@@ -311,13 +311,11 @@ txn_select_in_link( test_link_t   ** test_links,
 }
 
 static void
-txn_select_out_link( test_link_t   ** test_links,
-                     test_ctx_t    *  test_ctx,
-                     fd_pack_ctx_t *  ctx FD_PARAM_UNUSED ) {
+txn_select_out_links( test_link_t   ** test_links,
+                      test_ctx_t    *  test_ctx,
+                      fd_pack_ctx_t *  ctx FD_PARAM_UNUSED ) {
   if( test_ctx->locals->curr_leader_slot!=ULONG_MAX && test_ctx->locals->txn_in_pack ) {
-    test_ctx->out_link = test_links[ TEST_LINK_PACK_BANK ];
-  } else {
-    test_ctx->out_link = NULL;
+    check_output( CALLBACK_FN_AC, test_links[ TEST_LINK_PACK_BANK ] );
   }
 }
 
@@ -338,15 +336,14 @@ bundle_select_in_link( test_link_t   ** test_links,
 }
 
 static void
-bundle_select_out_link( test_link_t   ** test_links,
-                        test_ctx_t    *  test_ctx,
-                        fd_pack_ctx_t *  ctx FD_PARAM_UNUSED ) {
+bundle_select_out_links( test_link_t   ** test_links,
+                         test_ctx_t    *  test_ctx,
+                         fd_pack_ctx_t *  ctx FD_PARAM_UNUSED ) {
   tile_test_locals_t * locals = test_ctx->locals;
-  if( locals->bundle_txn_rcvd < locals->txn_per_bundle ||
-      locals->curr_leader_slot==ULONG_MAX ) {
-    test_ctx->out_link = NULL;
-  } else if( locals->rebate_ref.ib_result!=INT_MAX ) {
-    test_ctx->out_link = test_links[ TEST_LINK_PACK_BANK ];
+  if( locals->bundle_txn_rcvd==locals->txn_per_bundle &&
+      locals->curr_leader_slot!=ULONG_MAX &&
+      locals->rebate_ref.ib_result!=INT_MAX ) {
+    check_output( CALLBACK_FN_AC, test_links[ TEST_LINK_PACK_BANK ] );
   }
 }
 
@@ -365,15 +362,13 @@ stress_txn_select_in_link( test_link_t   ** test_links,
 }
 
 static void
-stress_txn_select_out_link( test_link_t   ** test_links,
-                            test_ctx_t    *  test_ctx,
-                            fd_pack_ctx_t *  ctx ) {
+stress_txn_select_out_links( test_link_t   ** test_links,
+                             test_ctx_t    *  test_ctx,
+                             fd_pack_ctx_t *  ctx ) {
   tile_test_locals_t * locals = test_ctx->locals;
   if( locals->stress_test_published>=locals->stress_test_target &&
       ctx->leader_slot!=ULONG_MAX && locals->txn_in_pack ) {
-    test_ctx->out_link = test_links[ TEST_LINK_PACK_BANK ];
-  } else {
-    test_ctx->out_link = NULL;
+    check_output( CALLBACK_FN_AC, test_links[ TEST_LINK_PACK_BANK ] );
   }
 }
 
@@ -392,14 +387,12 @@ overrun_txn_select_in_link( test_link_t   ** test_links,
 }
 
 static void
-overrun_txn_select_out_link( test_link_t   ** test_links,
-                             test_ctx_t    *  test_ctx,
-                             fd_pack_ctx_t *  ctx ) {
-  if( ctx->leader_slot==ULONG_MAX ||
-      !test_ctx->locals->txn_in_pack ) {
-    test_ctx->out_link = NULL;
-  } else {
-    test_ctx->out_link = test_links[ TEST_LINK_PACK_BANK ];
+overrun_txn_select_out_links( test_link_t   ** test_links,
+                              test_ctx_t    *  test_ctx,
+                              fd_pack_ctx_t *  ctx ) {
+  if( ctx->leader_slot!=ULONG_MAX &&
+      test_ctx->locals->txn_in_pack ) {
+    check_output( CALLBACK_FN_AC, test_links[ TEST_LINK_PACK_BANK ] );
   }
 }
 
@@ -421,14 +414,12 @@ overrun_bundle_select_in_link( test_link_t   ** test_links,
 }
 
 static void
-overrun_bundle_select_out_link( test_link_t  ** test_links,
-                               test_ctx_t    *  test_ctx,
-                               fd_pack_ctx_t *  ctx FD_PARAM_UNUSED ) {
+overrun_bundle_select_out_links( test_link_t  ** test_links,
+                                 test_ctx_t    *  test_ctx,
+                                 fd_pack_ctx_t *  ctx FD_PARAM_UNUSED ) {
   if( test_ctx->locals->rebate_ref.ib_result!=INT_MAX &&
       test_ctx->locals->txn_in_pack ) {
-    test_ctx->out_link = test_links[ TEST_LINK_PACK_BANK ];
-  } else {
-    test_ctx->out_link = NULL;
+    check_output( CALLBACK_FN_AC, test_links[ TEST_LINK_PACK_BANK ] );
   }
 }
 
@@ -447,8 +438,9 @@ bc_check( test_ctx_t * test_ctx,
 /************************** pack-bank out verifier *************************/
 /* Verify the output of pack-bank link */
 static int
-bank_out_check( test_ctx_t     * test_ctx,
-                fd_pack_ctx_t  * ctx ) {
+bank_out_check( test_ctx_t    * test_ctx,
+                fd_pack_ctx_t * ctx,
+                test_link_t   * bank_out_link ) {
   /* TODO: verify that we have actually timed out on the current leader slot */
   if( ctx->leader_slot==ULONG_MAX ) {
     return 0;
@@ -456,8 +448,8 @@ bank_out_check( test_ctx_t     * test_ctx,
 
   tile_test_locals_t * locals = test_ctx->locals;
 
-  fd_frag_meta_t * mline   = test_ctx->out_link->mcache + fd_mcache_line_idx( test_ctx->out_link->prod_seq, test_ctx->out_link->depth );
-  ulong            out_mem = (ulong)fd_chunk_to_laddr( (void *)test_ctx->out_link->base, test_ctx->out_link->chunk ) + mline->ctl;
+  fd_frag_meta_t * mline   = bank_out_link->mcache + fd_mcache_line_idx( bank_out_link->prod_seq, bank_out_link->depth );
+  ulong            out_mem = (ulong)fd_chunk_to_laddr( (void *)bank_out_link->base, bank_out_link->chunk ) + mline->ctl;
 
   if( locals->bundle_id && !locals->rebate_checked ) {
     // TODO: verify the content of IB txn
@@ -467,8 +459,8 @@ bank_out_check( test_ctx_t     * test_ctx,
     }
 
     fd_fseq_update( ctx->bank_current[ 0 ], ctx->bank_expect[ 0 ] );
-    test_ctx->out_link->prod_seq   = fd_seq_inc( test_ctx->out_link->prod_seq, 1 );
-    test_ctx->out_link->chunk      = fd_dcache_compact_next( test_ctx->out_link->chunk, mline->sz, test_ctx->out_link->chunk0, test_ctx->out_link->wmark );
+    bank_out_link->prod_seq   = fd_seq_inc( bank_out_link->prod_seq, 1 );
+    bank_out_link->chunk      = fd_dcache_compact_next( bank_out_link->chunk, mline->sz, bank_out_link->chunk0, bank_out_link->wmark );
     locals->rebate_checked = 1;
     locals->txn_in_pack--;
     return 0;
@@ -476,13 +468,13 @@ bank_out_check( test_ctx_t     * test_ctx,
 
   ulong txn_out_cnt = (mline->sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
   if( locals->txn_cnt && !mline->sz ) {
-    FD_LOG_WARNING(( "mline: %p, prod_seq: %lu sz: %u, chunk: %lu, chunk0: %lu", (void *)mline, test_ctx->out_link->prod_seq, mline->sz, test_ctx->out_link->chunk, test_ctx->out_link->chunk0 ));
+    FD_LOG_WARNING(( "mline: %p, prod_seq: %lu sz: %u, chunk: %lu, chunk0: %lu", (void *)mline, bank_out_link->prod_seq, mline->sz, bank_out_link->chunk, bank_out_link->chunk0 ));
     FD_LOG_WARNING(( "no transaction scheduled" ));
     return -1;
   }
 
   if( txn_out_cnt!=locals->txn_cnt ) {
-    FD_LOG_WARNING(( "mline: %p, sz: %u, bank out mem: %p, chunk: %lu, chunk0: %lu", (void *)mline, mline->sz, (void *)out_mem, test_ctx->out_link->chunk, test_ctx->out_link->chunk0 ));
+    FD_LOG_WARNING(( "mline: %p, sz: %u, bank out mem: %p, chunk: %lu, chunk0: %lu", (void *)mline, mline->sz, (void *)out_mem, bank_out_link->chunk, bank_out_link->chunk0 ));
     FD_LOG_WARNING(( "test_ctx->txn_cnt: %lu, txn_out_cnt: %lu", locals->txn_cnt, txn_out_cnt ));
     FD_LOG_WARNING(( "transaction out cnt unmatched" ));
     return -1;
@@ -510,7 +502,7 @@ bank_out_check( test_ctx_t     * test_ctx,
 
     if( ( txnp_out->payload_sz!=payload_sz_ref ) ||
         !fd_memeq( txnp_out_ref, txnp_out, txnp_out->payload_sz ) ) {
-      FD_LOG_WARNING(( "mline: %p, sz: %u, bank out mem: %p, chunk: %lu, chunk0: %lu", (void *)mline, mline->sz, (void *)out_mem, test_ctx->out_link->chunk, test_ctx->out_link->chunk0 ));
+      FD_LOG_WARNING(( "mline: %p, sz: %u, bank out mem: %p, chunk: %lu, chunk0: %lu", (void *)mline, mline->sz, (void *)out_mem, bank_out_link->chunk, bank_out_link->chunk0 ));
       FD_LOG_HEXDUMP_WARNING(( "txnp_out_ref", txnp_out_ref, payload_sz_ref       ));
       FD_LOG_HEXDUMP_WARNING(( "txnp_out",     txnp_out,     txnp_out->payload_sz ));
       print_txn_treap( ctx );
@@ -523,7 +515,7 @@ bank_out_check( test_ctx_t     * test_ctx,
     ulong txn_t_sz_out     = (ushort) fd_txn_footprint( txn_out->instr_cnt, txn_out->addr_table_adtl_cnt );
     if( ( txn_t_sz_out!=txn_t_sz_ref ) ||
         !fd_memeq( txn_out_ref, txn_out, txn_t_sz_ref ) ) {
-      FD_LOG_WARNING(( "mline: %p, sz: %u, bank out mem: %p, chunk: %lu, chunk0: %lu", (void *)mline, mline->sz, (void *)out_mem, test_ctx->out_link->chunk, test_ctx->out_link->chunk0 ));
+      FD_LOG_WARNING(( "mline: %p, sz: %u, bank out mem: %p, chunk: %lu, chunk0: %lu", (void *)mline, mline->sz, (void *)out_mem, bank_out_link->chunk, bank_out_link->chunk0 ));
       FD_LOG_HEXDUMP_WARNING(( "txn",     txn_out_ref, txn_t_sz_ref ));
       FD_LOG_HEXDUMP_WARNING(( "txn_out", txn_out,     txn_t_sz_out ));
       FD_LOG_WARNING(( "txnt for %lu unmatched", i ));
@@ -534,8 +526,8 @@ bank_out_check( test_ctx_t     * test_ctx,
     txnp_out++;
   }
 
-  test_ctx->out_link->prod_seq = fd_seq_inc( test_ctx->out_link->prod_seq, 1 );
-  test_ctx->out_link->chunk    = fd_dcache_compact_next( test_ctx->out_link->chunk, mline->sz, test_ctx->out_link->chunk0, test_ctx->out_link->wmark );
+  bank_out_link->prod_seq = fd_seq_inc( bank_out_link->prod_seq, 1 );
+  bank_out_link->chunk    = fd_dcache_compact_next( bank_out_link->chunk, mline->sz, bank_out_link->chunk0, bank_out_link->wmark );
 
   locals->txn_in_pack-=locals->txn_cnt;
   // Mock the bank tile: it has handled the microblock
@@ -551,6 +543,7 @@ static ulong
 resolve_publish_txn( test_ctx_t * test_ctx,
                      test_link_t * resolv_pack_link ) {
   int txn_i = test_ctx->locals->txn_i;
+  // FD_LOG_NOTICE(( "resolve_publish_txn %d", txn_i ));
   if( txn_i >= MAX_TEST_TXNS  ) return 0;
   fd_txn_p_t * txnp    = &txn_scratch[ txn_i ];
   fd_txn_t   * txn     = TXN( txnp );
@@ -1008,34 +1001,26 @@ main( int     argc,
 
   /* resolv-pack link */
   test_link_t resolv_pack_link = {0};
-  init_test_link( &config->topo, &resolv_pack_link, "resolv_pack", ctx,
-                  pack_find_in_idx,
-                  resolve_publish_txn, NULL,
-                  NULL, NULL, NULL, resolve_df_check, resolve_af_update );
+  init_test_link_in( &config->topo, &resolv_pack_link, "resolv_pack", ctx, pack_find_in_idx,
+                     resolve_publish_txn, NULL, NULL, resolve_df_check, resolve_af_update );
+
   /* poh-pack link */
   test_link_t poh_pack_link = {0};
-  init_test_link( &config->topo, &poh_pack_link, "poh_pack", ctx,
-                  pack_find_in_idx,
-                  poh_publish, poh_make_sig,
-                  NULL, NULL, NULL, poh_df_check, poh_af_check );
+  init_test_link_in( &config->topo, &poh_pack_link, "poh_pack", ctx, pack_find_in_idx,
+                     poh_publish, poh_make_sig, NULL, poh_df_check, poh_af_check );
+
   /* bank-pack link */
   test_link_t bank_pack_link = {0};
-  init_test_link( &config->topo, &bank_pack_link, "bank_pack", ctx,
-                  pack_find_in_idx,
-                  bank_rebate_publish, bank_rebate_make_sig,
-                  NULL, NULL, NULL, bank_rebate_df_check, bank_rebate_af_check );
+  init_test_link_in( &config->topo, &bank_pack_link, "bank_pack", ctx, pack_find_in_idx,
+                     bank_rebate_publish, bank_rebate_make_sig, NULL, bank_rebate_df_check, bank_rebate_af_check );
+
   /* pack-bank link */
   test_link_t pack_bank_link = {0};
-  init_test_link( &config->topo, &pack_bank_link, "pack_bank", ctx,
-                  pack_find_in_idx,
-                  NULL, NULL,
-                  bc_check, bank_out_check, NULL, NULL, NULL );
+  init_test_link_out( &config->topo, &pack_bank_link, "pack_bank", bank_out_check );
+
   /* pack-poh link */
   test_link_t pack_poh_link = {0};
-  init_test_link( &config->topo, &pack_poh_link, "pack_poh", ctx,
-                  pack_find_in_idx,
-                  NULL, NULL,
-                  bc_check, NULL, NULL, NULL, NULL );
+  init_test_link_out( &config->topo, &pack_poh_link, "pack_poh", NULL );
 
   test_link_t * test_links[ 5 ] = { 0 };
   test_links[ TEST_LINK_RESOLV_PACK ] = &resolv_pack_link;
@@ -1062,52 +1047,52 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "[tile-unit-test] Stress test txn I/O" ));
   update_test_link_callback( &resolv_pack_link, CALLBACK_FN_PUB, resolve_publish_txn, NULL );
-  reset_test_env( &test_ctx, &stem, test_links, stress_txn_select_in_link, stress_txn_select_out_link );
+  reset_test_env( &test_ctx, &stem, test_links, stress_txn_select_in_link, stress_txn_select_out_links, bc_check, NULL );
   pack_reset( &config->topo, pack_tile, &test_ctx, ctx, 0, 1000 );
   tile_test_run( ctx, &stem, test_links, &test_ctx, 2200, 10 );
 
   FD_LOG_NOTICE(( "[tile-unit-test] Test bundle overrun" ));
   update_test_link_callback( &resolv_pack_link, CALLBACK_FN_PUB, resolve_publish_bundle_overrun, NULL );
-  reset_test_env( &test_ctx, &stem, test_links, overrun_bundle_select_in_link, overrun_bundle_select_out_link );
+  reset_test_env( &test_ctx, &stem, test_links, overrun_bundle_select_in_link, overrun_bundle_select_out_links, bc_check, NULL );
   pack_reset( &config->topo, pack_tile, &test_ctx, ctx, FD_PACK_MAX_TXN_PER_BUNDLE, 0 );
   tile_test_run( ctx, &stem, test_links, &test_ctx, 20, 2 );
 
   FD_LOG_NOTICE(( "[tile-unit-test] Test txn overrun" ));
   update_test_link_callback( &resolv_pack_link, CALLBACK_FN_PUB, resolve_publish_txn_overrun, NULL );
-  reset_test_env( &test_ctx, &stem, test_links, overrun_txn_select_in_link, overrun_txn_select_out_link );
+  reset_test_env( &test_ctx, &stem, test_links, overrun_txn_select_in_link, overrun_txn_select_out_links, bc_check, NULL );
   pack_reset( &config->topo, pack_tile, &test_ctx, ctx, 0, 0 );
   tile_test_run( ctx, &stem, test_links, &test_ctx, 7, 2 );
 
   /* Normal transaction loop */
   FD_LOG_NOTICE(( "[tile-unit-test] Normal transaction I/O" ));
   update_test_link_callback( &resolv_pack_link, CALLBACK_FN_PUB, resolve_publish_txn, NULL );
-  reset_test_env( &test_ctx, &stem, test_links, txn_select_in_link, txn_select_out_link );
+  reset_test_env( &test_ctx, &stem, test_links, txn_select_in_link, txn_select_out_links, bc_check, NULL );
   pack_reset( &config->topo, pack_tile, &test_ctx, ctx, 0, 0 );
   tile_test_run( ctx, &stem, test_links, &test_ctx, MAX_TEST_TXNS*3, 5 );
 
   /* Normal bundle loop */
   FD_LOG_NOTICE(( "[tile-unit-test] Bundle I/O" ));
   update_test_link_callback( &resolv_pack_link, CALLBACK_FN_PUB, resolve_publish_bundle, NULL );
-  reset_test_env( &test_ctx, &stem, test_links, bundle_select_in_link, bundle_select_out_link );
+  reset_test_env( &test_ctx, &stem, test_links, bundle_select_in_link, bundle_select_out_links, bc_check, NULL );
   pack_reset( &config->topo, pack_tile, &test_ctx, ctx, FD_PACK_MAX_TXN_PER_BUNDLE, 0 );
   tile_test_run( ctx, &stem, test_links, &test_ctx, 8, 2 );
 
   /* Normal transaction loop again */
   FD_LOG_NOTICE(( "[tile-unit-test] Normal transaction I/O again" ));
   update_test_link_callback( &resolv_pack_link, CALLBACK_FN_PUB, resolve_publish_txn, NULL );
-  reset_test_env( &test_ctx, &stem, test_links, txn_select_in_link, txn_select_out_link );
+  reset_test_env( &test_ctx, &stem, test_links, txn_select_in_link, txn_select_out_links, bc_check, NULL );
   pack_reset( &config->topo, pack_tile, &test_ctx, ctx, 0, 0 );
   tile_test_run( ctx, &stem, test_links, &test_ctx, MAX_TEST_TXNS*3, 2 );
 
   FD_LOG_NOTICE(( "[tile-unit-test] Test txn overrun again" ));
   update_test_link_callback( &resolv_pack_link, CALLBACK_FN_PUB, resolve_publish_txn_overrun, NULL );
-  reset_test_env( &test_ctx, &stem, test_links, overrun_txn_select_in_link, overrun_txn_select_out_link );
+  reset_test_env( &test_ctx, &stem, test_links, overrun_txn_select_in_link, overrun_txn_select_out_links, bc_check, NULL );
   pack_reset( &config->topo, pack_tile, &test_ctx, ctx, 0, 0 );
   tile_test_run( ctx, &stem, test_links, &test_ctx, 15, 2 );
 
   FD_LOG_NOTICE(( "[tile-unit-test] Test bundle overrun again" ));
   update_test_link_callback( &resolv_pack_link, CALLBACK_FN_PUB, resolve_publish_bundle_overrun, NULL );
-  reset_test_env( &test_ctx, &stem, test_links, overrun_bundle_select_in_link, overrun_bundle_select_out_link );
+  reset_test_env( &test_ctx, &stem, test_links, overrun_bundle_select_in_link, overrun_bundle_select_out_links, bc_check, NULL );
   pack_reset( &config->topo, pack_tile, &test_ctx, ctx, FD_PACK_MAX_TXN_PER_BUNDLE-1, 0 );
   tile_test_run( ctx, &stem, test_links, &test_ctx, 20, 2 );
 
@@ -1115,7 +1100,7 @@ main( int     argc,
   if( 0 ) {
     FD_LOG_NOTICE(( "[tile-unit-test] Test FD_PACK_MAX_TXN_PER_BUNDLE+1 txn per bundle" ));
     update_test_link_callback( &resolv_pack_link, CALLBACK_FN_PUB, resolve_publish_bundle, NULL );
-    reset_test_env( &test_ctx, &stem, test_links, bundle_select_in_link, bundle_select_out_link );
+    reset_test_env( &test_ctx, &stem, test_links, bundle_select_in_link, bundle_select_out_links, bc_check, NULL );
     pack_reset( &config->topo, pack_tile, &test_ctx, ctx, FD_PACK_MAX_TXN_PER_BUNDLE+1, 0 );
     tile_test_run( ctx, &stem, test_links, &test_ctx, 8, 2 );
   }

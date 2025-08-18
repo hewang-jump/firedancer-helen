@@ -79,8 +79,8 @@ fd_tile_unit_test_init( char const *         default_topo_config_path,
 
          struct test_context {
             ulong loop_i;
-            void  (*select_in_link)  (test_link_t ** test_links, test_ctx_t *, TEST_TILE_CTX_TYPE *);
-            void  (*select_out_link) (test_link_t ** test_links, test_ctx_t *, TEST_TILE_CTX_TYPE *);
+            void  (*select_in_link)   (test_link_t ** test_links, test_ctx_t *, TEST_TILE_CTX_TYPE *);
+            void  (*select_out_links) (test_link_t ** test_links, test_ctx_t *, TEST_TILE_CTX_TYPE *);
             ....
             tile_test_locals_t locals[ 1 ];  // Tile specific test fields.
          };
@@ -105,7 +105,7 @@ fd_tile_unit_test_init( char const *         default_topo_config_path,
       #include "../../app/shared/fd_tile_unit_test_tmpl.c"
 
       Will generate the following structures that can be used for any
-      upstream frag producers/verifiers and downstream verifiers
+      upstream frag producers/verifiers and downstream frag verifiers
       during the test:
 
          // All TEST_TILE_CTX_TYPE will be replaced by
@@ -116,29 +116,39 @@ fd_tile_unit_test_init( char const *         default_topo_config_path,
                ...
                tile_test_locals_t locals[ 1 ];
             };
-            // Contains both common testing infrastructure and tile-specific state.
+            // Contains both common testing infrastructure and
+            // tile-specific state.
 
             typedef struct test_link test_link_t;
             struct test_link {
                ....
             };
-            // This structure models the Firedancer communication channels
-            // (fd_topo_link_t) between tiles. The test template will initialize
-            // these fields by calling init_test_link that's discussed later.
+            // This structure models the Firedancer communication
+            // channels (fd_topo_link_t) between tiles.  The test
+            // template will initialize these fields by calling
+            // init_test_link_in/out that are discussed later.
 
       And will generate the following APIs:
          - TEST_TILE_CTX_TYPE below will be replaced by actual context
            type (e.g. fd_example_ctx_t):
 
          void
-         init_test_link( ..... );
-         // Find the link in the topology according link_name, and initialize the
-         // test link with callbacks for frags generation and verification.
+         init_test_link_in( ..... );
+         void
+         init_test_link_out( ..... );
+         // Find the link in the topology according link_name, and
+         // initialize the test link with callbacks for frags
+         // generation and verification.
 
          void
          reset_test_env( .... );
          // Reset test environment between test runs.
          // Must be called before a new test run.
+
+         void
+         check_output( ... );
+         // Notify test to verify output when the tested tile is
+         // expected to produce frags after a tile callback.
 
          void
          tile_test_run( ... );
@@ -147,7 +157,7 @@ fd_tile_unit_test_init( char const *         default_topo_config_path,
    // Custom functions to be implemented in test_xxx_tile.c:
 
    // Each run of test needs its own way of selecting an input link
-   // and output link.  Each input/upstream/producer link usually has
+   // and output links.  Each input/upstream/producer link usually has
    // its own input generator, such as publish(...) and make_sig(...),
    // and therefore their own state verifier.
    // Each output/downstream/consumer link usually has its own output
@@ -163,12 +173,12 @@ fd_tile_unit_test_init( char const *         default_topo_config_path,
       // Must set the test_ctx->in_link to NULL if no producer.
 
       static void
-      run1_select_out_link( ... test_links,
-                            ... test_ctx,
-                            ... tile_ctx {
-         test_ctx->out_link = fd_uint_if( test_ctx->loop%2, test_links[ 1 ], NULL );
+      run1_select_out_links( ... test_links,
+                             ... test_ctx,
+                             ... tile_ctx {
+         if( test_ctx->loop%2 ) check_output( CALLBACK_FN_AC, test_links[ 1 ] );
       };
-      // Must set the test_ctx->out_link to NULL if do not expect tile to output anything.
+      // Must call check_output if expect the tile to produce a frag
 
       static ulong
       link1_publish( ... test_ctx,
@@ -179,11 +189,11 @@ fd_tile_unit_test_init( char const *         default_topo_config_path,
       };
 
       static int
-      link2_ac_check(... test_ctx,
-                    ... tile_ctx ) {
-         test_link_t * out_link = test_ctx->out_link;
-         fd_frag_meta_t * mline = out_link->mcache + fd_mcache_line_idx( out_link->prod_seq, out_link->depth );
-         ulong out_mem          = (ulong)fd_chunk_to_laddr( (void *)out_link->base, out_link->chunk ) + mline->ctl;
+      link2_out_check(... test_ctx,
+                      ... tile_ctx,
+                      ... link2 ) {
+         fd_frag_meta_t * mline = link2->mcache + fd_mcache_line_idx( link2->prod_seq, link2->depth );
+         ulong out_mem          = (ulong)fd_chunk_to_laddr( (void *)link2->base, link2->chunk ) + mline->ctl;
          if( !verify_output_vector( out_mem ) ) {
             FD_LOG_WARNING(("output unmatched"));
             return -1;
@@ -243,24 +253,25 @@ fd_tile_unit_test_init( char const *         default_topo_config_path,
          unprivileged_init(    &config->topo, test_tile );
 
          test_link_t input_link = {0};
-         init_test_link( &config->topo, &input_link, "<input_tile>_<tested_tile>", ctx,
-                         link1_publish, NULL,
-                         NULL, NULL, NULL, link1_df_check, link1_af_check );
-         test_links_t * test_links[ 2 ] = {input_link, output_link};
+         init_test_link_in( &config->topo, &input_link, "<input_tile>_<tested_tile>", ctx, find_in_index,
+                            link1_publish, NULL, NULL, link1_df_check, link1_af_check );
+         test_link_t output_link = {0};
+         init_test_link_in( &config->topo, &output_link, "<tested_tile>_<output_tile>", link2_out_check );
+         test_links_t * test_links[ 2 ] = { input_link, output_link };
          ....
 
          populate_test_vectors( &test_ctx );
 
          // Tile test run 1
          reset_test_env( &test_ctx, &stem, test_links,
-                         run1_select_in_link, run1_select_out_link );
+                         run1_select_in_link, run1_select_out_link, bc_check1, ac_check1 );
          example_reset( &test_ctx, ctx, 1, 0 );
          tile_test_run( ctx, &stem, test_links, &test_ctx, 12, 6 );
 
          // Tile test run 2
          update_test_link_callback( &input_link, CALLBACK_FN_PUB, publish2, NULL );
          reset_test_env( &test_ctx, &stem, test_links,
-                         stress_test_select_in_link, stress_test_select_out_link );
+                         stress_test_select_in_link, stress_test_select_out_link, bc_check2, ac_check2 );
          example_reset( &test_ctx, ctx, 1, 0 );
          tile_test_run( ctx, &stem, test_links, &test_ctx, 200000, 1000 );
 
@@ -299,24 +310,28 @@ struct test_link {
    ulong prod_seq;  // seq of newly produced frag. initialized to 0, and incremented everytime when a new frag is produced from this link
    ulong cons_seq;  // seq of currently processing frag. initialized to ULONG_MAX, and incremented everytime before the test loop processes a frag
 
+   int is_input_link;   // 1 the link is an input/producer/upstream link, 0 if the link is an output/consumer/downstream link
+
+   // for input/producer/upstream link
    ulong (*publish) ( test_ctx_t *, test_link_t * );    // callback to publish a frag
    ulong (*make_sig)( test_ctx_t *, test_link_t * );    // callback to make signature for the published frag
-   int (*bc_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );  // callback to check before_credit.
-   int (*ac_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );  // callback to check after_credit
    int (*bf_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );  // callback to check before_frag
    int (*df_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );  // callback to check during_frag
    int (*af_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );  // callback to check after_frag
+
+   // for output/consumer/downstream link
+   int (*output_verifier) ( test_ctx_t *, TEST_TILE_CTX_TYPE *, test_link_t * ); // callback to verify an output
 };
 
 /* For updating a callback for a test link in update_test_link_callback */
 enum test_callback_fn_num {
-   CALLBACK_FN_BC  = 0,    // before_credit
-   CALLBACK_FN_AC  = 1,    // after_credit
-   CALLBACK_FN_BF  = 2,    // before_frag
-   CALLBACK_FN_DF  = 3,    // during_frag
-   CALLBACK_FN_AF  = 4,    // after_frag
-   CALLBACK_FN_PUB = 5,    // publish
-   CALLBACK_FN_SIG = 6     // make_sign
+   CALLBACK_FN_BC     = 0,    // before_credit
+   CALLBACK_FN_AC     = 1,    // after_credit
+   CALLBACK_FN_BF     = 2,    // before_frag
+   CALLBACK_FN_DF     = 3,    // during_frag
+   CALLBACK_FN_AF     = 4,    // after_frag
+   CALLBACK_FN_PUB    = 5,    // publish
+   CALLBACK_FN_SIG    = 6     // make_sign
 };
 
 /* test_ctx_t contains both common testing infrastructure and
@@ -331,10 +346,10 @@ enum test_callback_fn_num {
 typedef struct tile_test_locals tile_test_locals_t;
 struct test_context {
    ulong loop_i;       // test loop counter
-   void (*select_in_link)  (test_link_t ** test_links, test_ctx_t *, TEST_TILE_CTX_TYPE *); // for selecting upstream producer
-   void (*select_out_link) (test_link_t ** test_links, test_ctx_t *, TEST_TILE_CTX_TYPE *); // for selecting downstream consumer
-   test_link_t * out_link;  // output link for current loop, set by select_in_link above.
-   test_link_t * in_link;   // input link for current loop, set by select_out_link above.
+   void (*select_in_link)   (test_link_t ** test_links, test_ctx_t *, TEST_TILE_CTX_TYPE *); // for selecting upstream producer
+   void (*select_out_links) (test_link_t ** test_links, test_ctx_t *, TEST_TILE_CTX_TYPE *); // for selecting downstream consumers
+
+   test_link_t * in_link;   // input link for current loop, set by select_in_link above.
 
    ulong is_overrun; // whether the current frag is overrun
 
@@ -345,28 +360,38 @@ struct test_context {
    tile_test_locals_t locals[ 1 ];     // Tile specific test fields
 };
 
-/* Initialize test_link:
+
+/* Initialize an output/consumer/downstream test_link:
    Find the link in the topology according link_name, and initialize
-   the test link with callbacks for frags generation and verification.
-   find_in_idx is a callback to find the index of this link in
-   context, if possible. A producer link will specify publish,
-   make_sig, and bf/df/af_check, while a consumer link will have
-   bc/ac_check. The check functions should return a non-zero error
-   code when fail and log warning. The tile_test_run will abort the
-   test if any of the check functions return an error code. */
+   the test link with callbacks for frag verification.  Usually, the
+   link was added to topology by fd_topob_tile_out.  The check
+   functions should return a non-zero error code when fail and log
+   warning. */
 void
-init_test_link( fd_topo_t     * topo,
-                test_link_t   * test_link,
-                const char    * link_name,
-                TEST_TILE_CTX_TYPE * ctx,
-                void  (*find_in_idx)( test_link_t *, TEST_TILE_CTX_TYPE * ),
-                ulong (*publish) ( test_ctx_t *, test_link_t * ),
-                ulong (*make_sig)( test_ctx_t *, test_link_t * ),
-                int (*bc_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ),
-                int (*ac_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ),
-                int (*bf_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ),
-                int (*df_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ),
-                int (*af_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ) );
+init_test_link_out( fd_topo_t     * topo,
+                    test_link_t   * test_link,
+                    const char    * link_name,
+                    int (*output_verifier) ( test_ctx_t *, TEST_TILE_CTX_TYPE *, test_link_t * ) );
+
+/* Initialize an input/producer/upstream test_link:
+   Find the link in the topology according link_name, and initialize
+   the test link with callbacks for frags generation and verification,
+   and for checking the tile's context when consuming a frag.  Usually
+   the link was added to topology thourgh fd_topob_tile_in.
+   find_in_idx is a callback to find the index of this link in tile's
+   ctx, and cannot be NULL.  The check functions should return a
+   non-zero error code when fail and log warning.  */
+void
+init_test_link_in( fd_topo_t     * topo,
+                   test_link_t   * test_link,
+                   const char    * link_name,
+                   TEST_TILE_CTX_TYPE * ctx,
+                   void (*find_in_idx)( test_link_t *, TEST_TILE_CTX_TYPE * ),
+                   ulong (*publish) ( test_ctx_t *, test_link_t * ),
+                   ulong (*make_sig)( test_ctx_t *, test_link_t * ),
+                   int (*bf_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ),
+                   int (*df_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ),
+                   int (*af_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ) );
 
 
 /* Update one of the test link's callback.  Only one of pub_or_sig and
@@ -379,6 +404,16 @@ update_test_link_callback( test_link_t * test_link,
                            int (*check)(        test_ctx_t *, TEST_TILE_CTX_TYPE * ) );
 
 
+/* Used in select_output_links callback when the tested tile is
+   expected to produce frags after a tile callback.  The
+   callback_fn_num must be one of CALLBACK_FN_BC, CALLBACK_FN_AC, and
+   CALLBACK_FN_AF.  The tile_test_run will invoke the output_verifier
+   callback defined in the test_link after the specified tile
+   callback to verify output.  */
+static void
+check_output( int callback_fn_num,
+              test_link_t * test_link );
+
 /* Reset test environment between test runs (clears state, resets
    input/output selection callbacks, etc ).  Must be called before
    each test run. */
@@ -387,7 +422,9 @@ reset_test_env( test_ctx_t        *  test_ctx,
                 fd_stem_context_t *  stem,
                 test_link_t       ** test_links,
                 void (*selec_in_link) ( test_link_t **, test_ctx_t *, TEST_TILE_CTX_TYPE * ),
-                void (*selec_out_link)( test_link_t **, test_ctx_t *, TEST_TILE_CTX_TYPE * ) );
+                void (*selec_out_link)( test_link_t **, test_ctx_t *, TEST_TILE_CTX_TYPE * ),
+                int (*bc_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ),
+                int (*ac_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ) );
 
 
 /* Main test execution function - runs the tile test through multiple

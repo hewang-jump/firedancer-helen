@@ -43,27 +43,42 @@ struct frag_params {
 };
 
 struct test_callbacks {
+  /* callbacks defined at the beginning of each test run */
   int (*bc_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );
   int (*ac_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );
+
+  /* callbacks defined by the input link of each test loop */
   int (*bf_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );
   int (*df_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );
   int (*af_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * );
+
+  /* output links that expect frag */
+  test_link_t * bc_output_links[ TEST_LINKS_OUT_CNT ];  // links that expect before_credit to produce frags
+  int           bc_output_links_cnt;
+  test_link_t * ac_output_links[ TEST_LINKS_OUT_CNT ];  // links that expect after_credit to produce frags
+  int           ac_output_links_cnt;
+  test_link_t * af_output_links[ TEST_LINKS_OUT_CNT ];  // links that expect after_frag to produce frags
+  int           af_output_links_cnt;
 };
 
+static test_callbacks_t test_callbacks;  // test callbacks for each test loop
 
 void
 reset_test_env( test_ctx_t        * test_ctx,
                 fd_stem_context_t * stem,
                 test_link_t       ** test_links,
-                void (*select_in_link) ( test_link_t **, test_ctx_t *, TEST_TILE_CTX_TYPE * ),
-                void (*select_out_link)( test_link_t **, test_ctx_t *, TEST_TILE_CTX_TYPE * ) ) {
+                void (*select_in_link)  ( test_link_t **, test_ctx_t *, TEST_TILE_CTX_TYPE * ),
+                void (*select_out_links)( test_link_t **, test_ctx_t *, TEST_TILE_CTX_TYPE * ),
+                int (*bc_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ),
+                int (*ac_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ) ) {
+
   if( !select_in_link ) FD_LOG_ERR(( "select_in_link function not defined" ));
-  if( !select_out_link ) FD_LOG_ERR(( "select_out_link function not defined" ));
+  if( !select_out_links ) FD_LOG_ERR(( "select_out_link function not defined" ));
 
   /* initialize test_ctx */
   fd_memset( test_ctx, 0, sizeof(test_ctx_t) );
-  test_ctx->select_in_link  = select_in_link;
-  test_ctx->select_out_link = select_out_link;
+  test_ctx->select_in_link   = select_in_link;
+  test_ctx->select_out_links = select_out_links;
 
   /* reset test links */
   for( ulong i=0; i<TEST_LINKS_CNT; i++ ) {
@@ -77,26 +92,20 @@ reset_test_env( test_ctx_t        * test_ctx,
     stem->seqs[     i ] = 0;
     stem->cr_avail[ i ] = ULONG_MAX;
   }
+
+  test_callbacks.bc_check = bc_check;
+  test_callbacks.ac_check = ac_check;
 }
 
-
 void
-init_test_link( fd_topo_t     * topo,
-                test_link_t   * test_link,
-                const char    * link_name,
-                TEST_TILE_CTX_TYPE * ctx,
-                void  (*find_in_idx)( test_link_t *, TEST_TILE_CTX_TYPE * ),
-                ulong (*publish) ( test_ctx_t *, test_link_t * ),
-                ulong (*make_sig)( test_ctx_t *, test_link_t * ),
-                int (*bc_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ),
-                int (*ac_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ),
-                int (*bf_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ),
-                int (*df_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ),
-                int (*af_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ) ) {
-
+init_test_link_out( fd_topo_t     * topo,
+                    test_link_t   * test_link,
+                    const char    * link_name,
+                    int (*output_verifier) ( test_ctx_t *, TEST_TILE_CTX_TYPE *, test_link_t * ) ) {
   /* find link idx in topology */
   ulong link_idx = fd_topo_find_link( topo, link_name, 0UL );
-  FD_TEST( link_idx!=ULONG_MAX );
+  if( link_idx==ULONG_MAX ) FD_LOG_ERR(( "init_test_link_out failed for test link %s: cannot find in topology", link_name ));
+
   const fd_topo_link_t * link = &topo->links[ link_idx ];
   *test_link = (test_link_t) {  /* Pave out any fields inside test_link_t that are not explicitly initialized */
     .mcache = link->mcache,
@@ -105,13 +114,56 @@ init_test_link( fd_topo_t     * topo,
     .base   = fd_wksp_containing( link->dcache ),
     .in_idx = ULONG_MAX,
 
+    .is_input_link = 0,
+
+    .prod_seq = 0,
+    .cons_seq = ULONG_MAX,
+
+    .output_verifier = output_verifier
+  };
+
+  FD_TEST( test_link->mcache );
+  FD_TEST( test_link->dcache );
+
+  test_link->chunk0 = fd_dcache_compact_chunk0( test_link->base, test_link->dcache );
+  test_link->wmark  = fd_dcache_compact_wmark ( test_link->base, test_link->dcache, link->mtu );
+  test_link->chunk  = test_link->chunk0;
+
+  if( output_verifier ) FD_TEST( test_link->output_verifier );
+}
+
+void
+init_test_link_in( fd_topo_t     * topo,
+                   test_link_t   * test_link,
+                   const char    * link_name,
+                   TEST_TILE_CTX_TYPE * ctx,
+                   void (*find_in_idx)( test_link_t *, TEST_TILE_CTX_TYPE * ),
+                   ulong (*publish) ( test_ctx_t *, test_link_t * ),
+                   ulong (*make_sig)( test_ctx_t *, test_link_t * ),
+                   int (*bf_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ),
+                   int (*df_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ),
+                   int (*af_check)( test_ctx_t *, TEST_TILE_CTX_TYPE * ) ) {
+  if( !find_in_idx ) FD_LOG_ERR(( "init_test_link_in failed for test link %s: must specify find_in_idx", link_name ));
+
+  /* find link idx in topology */
+  ulong link_idx = fd_topo_find_link( topo, link_name, 0UL );
+  if( link_idx==ULONG_MAX ) FD_LOG_ERR(( "init_test_link_in failed for test link %s: cannot find in topology", link_name ));
+
+  const fd_topo_link_t * link = &topo->links[ link_idx ];
+  *test_link = (test_link_t) {  /* Pave out any fields inside test_link_t that are not explicitly initialized */
+    .mcache = link->mcache,
+    .dcache = link->dcache,
+    .depth  = fd_mcache_depth( link->mcache ),
+    .base   = fd_wksp_containing( link->dcache ),
+    .in_idx = ULONG_MAX,
+
+    .is_input_link = 1,
+
     .prod_seq = 0,
     .cons_seq = ULONG_MAX,
 
     .publish  = publish,
     .make_sig = make_sig,
-    .bc_check = bc_check,
-    .ac_check = ac_check,
     .bf_check = bf_check,
     .df_check = df_check,
     .af_check = af_check
@@ -124,7 +176,8 @@ init_test_link( fd_topo_t     * topo,
   test_link->wmark  = fd_dcache_compact_wmark ( test_link->base, test_link->dcache, link->mtu );
   test_link->chunk  = test_link->chunk0;
 
-  if( find_in_idx ) find_in_idx( test_link, ctx );
+  find_in_idx( test_link, ctx );
+  if( test_link->in_idx==ULONG_MAX ) FD_LOG_ERR(( "init_test_link_in failed for test link %s: cannot find in_idx", link_name ));
 }
 
 void
@@ -133,25 +186,24 @@ update_test_link_callback( test_link_t * test_link,
                            ulong (*pub_or_sig)( test_ctx_t *, test_link_t *   ),
                            int   (*check)(      test_ctx_t *, TEST_TILE_CTX_TYPE * ) ) {
   switch( callback_fn_num ) {
-    case CALLBACK_FN_BC:
-      test_link->bc_check = check;
-      break;
-    case CALLBACK_FN_AC:
-      test_link->ac_check = check;
-      break;
     case CALLBACK_FN_BF:
+      FD_TEST( test_link->is_input_link );
       test_link->bf_check = check;
       break;
     case CALLBACK_FN_DF:
+      FD_TEST( test_link->is_input_link );
       test_link->df_check = check;
       break;
     case CALLBACK_FN_AF:
+      FD_TEST( test_link->is_input_link );
       test_link->af_check = check;
       break;
     case CALLBACK_FN_PUB:
+      FD_TEST( test_link->is_input_link );
       test_link->publish  = pub_or_sig;
       break;
     case CALLBACK_FN_SIG:
+      FD_TEST( test_link->is_input_link );
       test_link->make_sig = pub_or_sig;
       break;
     default:
@@ -160,10 +212,71 @@ update_test_link_callback( test_link_t * test_link,
   }
 }
 
-/* Initializing call backs */
-static void
-init_callbacks( test_callbacks_t * callbacks ) {
-  fd_memset( callbacks, 0, sizeof(test_callbacks_t) );
+void
+check_output( int callback_fn_num,
+              test_link_t * test_link ) {
+  switch (callback_fn_num) {
+    case CALLBACK_FN_BC: {
+      FD_TEST(  test_callbacks.bc_output_links_cnt < TEST_LINKS_OUT_CNT );
+      test_callbacks.bc_output_links[ test_callbacks.bc_output_links_cnt++ ] = test_link;
+      break;
+    }
+    case CALLBACK_FN_AC: {
+      FD_TEST(  test_callbacks.ac_output_links_cnt < TEST_LINKS_OUT_CNT );
+      test_callbacks.ac_output_links[ test_callbacks.ac_output_links_cnt++ ] = test_link;
+      break;
+    }
+    case CALLBACK_FN_AF: {
+      FD_TEST(  test_callbacks.af_output_links_cnt < TEST_LINKS_OUT_CNT );
+      test_callbacks.af_output_links[ test_callbacks.af_output_links_cnt++ ] = test_link;
+      break;
+    }
+    default: {
+      FD_LOG_ERR(("unsupported output verifier for function number: %d", callback_fn_num));
+      break;
+    }
+  }
+}
+
+/* Invoke the output verifier callbacks for tile callbacks specified
+   by callback_fn_num. */
+static int
+output_verify( int callback_fn_num,
+               TEST_TILE_CTX_TYPE * ctx,
+               test_ctx_t         * test_ctx ) {
+  int num_links               = 0;
+  test_link_t ** output_links = NULL;
+
+  switch (callback_fn_num) {
+    case CALLBACK_FN_BC: {
+      output_links = test_callbacks.bc_output_links;
+      num_links    = test_callbacks.bc_output_links_cnt;
+      break;
+    }
+    case CALLBACK_FN_AC: {
+      output_links = test_callbacks.ac_output_links;
+      num_links    = test_callbacks.ac_output_links_cnt;
+      break;
+    }
+    case CALLBACK_FN_AF: {
+      output_links = test_callbacks.af_output_links;
+      num_links    = test_callbacks.af_output_links_cnt;
+      break;
+    }
+    default: {
+      FD_LOG_WARNING(("unsupported output verifier for function number: %d", callback_fn_num));
+      return -1;
+    }
+  }
+
+  if( num_links ) FD_TEST( output_links );
+
+  for( int i=0; i<num_links; i++ ) {
+    FD_TEST( output_links[ i ] );
+    FD_TEST( output_links[ i ]->output_verifier );
+    if ( output_links[ i ]->output_verifier( test_ctx, ctx, output_links[ i ] ) ) return -2;
+  }
+  return 0;
 }
 
 /* Initializing before_/during_/after_frags params */
@@ -175,6 +288,11 @@ init_frag_params( frag_params_t * params ) {
     .sig    = 0,
     .sz     = 0,
   };
+}
+
+static void
+init_test_callbacks( void ) {
+  fd_memset( &test_callbacks, 0, sizeof(test_callbacks_t) );
 }
 
 /* Detect overrun by checking the difference between in_link's prod_seq and cons_seq.
@@ -203,7 +321,6 @@ static int
 upstream_produce( TEST_TILE_CTX_TYPE    *  ctx,
                   test_ctx_t       *  test_ctx,
                   test_link_t      ** test_links,
-                  test_callbacks_t *  test_callbacks,
                   frag_params_t    *  frag_params ) {
 
   /* select an input link */
@@ -212,9 +329,9 @@ upstream_produce( TEST_TILE_CTX_TYPE    *  ctx,
   test_link_t * in_link = test_ctx->in_link;
 
   if( !in_link ) { // no producer.
-    test_callbacks->bf_check = NULL;
-    test_callbacks->df_check = NULL;
-    test_callbacks->af_check = NULL;
+    test_callbacks.bf_check = NULL;
+    test_callbacks.df_check = NULL;
+    test_callbacks.af_check = NULL;
     return 0;
   }
 
@@ -241,9 +358,9 @@ upstream_produce( TEST_TILE_CTX_TYPE    *  ctx,
   in_link->prod_seq = fd_seq_inc( in_link->prod_seq, 1 );
 
   // update callbacks
-  test_callbacks->bf_check = test_ctx->in_link->bf_check;
-  test_callbacks->df_check = test_ctx->in_link->df_check;
-  test_callbacks->af_check = test_ctx->in_link->af_check;
+  test_callbacks.bf_check = test_ctx->in_link->bf_check;
+  test_callbacks.df_check = test_ctx->in_link->df_check;
+  test_callbacks.af_check = test_ctx->in_link->af_check;
 
   return 1;
 }
@@ -253,17 +370,12 @@ upstream_produce( TEST_TILE_CTX_TYPE    *  ctx,
 static void
 downstream_select( TEST_TILE_CTX_TYPE    *  ctx,
                    test_ctx_t       *  test_ctx,
-                   test_link_t      ** test_links,
-                   test_callbacks_t *  test_callbacks ) {
-  FD_TEST( test_ctx->select_out_link );
-  test_ctx->select_out_link( test_links, test_ctx, ctx );
-  if( test_ctx->out_link ) {
-    test_callbacks->bc_check = test_ctx->out_link->bc_check;
-    test_callbacks->ac_check = test_ctx->out_link->ac_check;
-  } else {
-    test_callbacks->bc_check = NULL;
-    test_callbacks->ac_check = NULL;
-  }
+                   test_link_t      ** test_links ) {
+  test_callbacks.bc_output_links_cnt = 0;
+  test_callbacks.ac_output_links_cnt = 0;
+  test_callbacks.af_output_links_cnt = 0;
+
+  test_ctx->select_out_links( test_links, test_ctx, ctx );
 }
 
 
@@ -274,17 +386,13 @@ tile_test_run( TEST_TILE_CTX_TYPE     *  ctx,
                test_ctx_t        *  test_ctx,
                ulong                loop_cnt,
                ulong                housekeeping_interval ) {
-  frag_params_t    frag_params;
-  test_callbacks_t callbacks;
+  frag_params_t frag_params;
   init_frag_params( &frag_params );
-  init_callbacks(   &callbacks   );
+  init_test_callbacks();
 
   for( ; test_ctx->loop_i < loop_cnt; test_ctx->loop_i++ ) {
-    int has_input  = upstream_produce(  ctx, test_ctx, test_links, &callbacks, &frag_params );
-    #if ( defined TEST_CALLBACK_BEFORE_CREDIT ) || ( defined TEST_CALLBACK_AFTER_CREDIT )
-      downstream_select( ctx, test_ctx, test_links, &callbacks );
-      int charge_busy;
-    #endif
+    int has_input  = upstream_produce(  ctx, test_ctx, test_links, &frag_params );
+    downstream_select( ctx, test_ctx, test_links );
 
     #ifdef TEST_CALLBACK_HOUSEKEEPING
       if( test_ctx->loop_i % housekeeping_interval ) {
@@ -292,15 +400,21 @@ tile_test_run( TEST_TILE_CTX_TYPE     *  ctx,
       }
     #endif
 
+    #if ( defined TEST_CALLBACK_BEFORE_CREDIT ) || ( defined TEST_CALLBACK_AFTER_CREDIT )
+      int charge_busy;
+    #endif
+
     #ifdef TEST_CALLBACK_BEFORE_CREDIT
       TEST_CALLBACK_BEFORE_CREDIT( ctx, stem, &charge_busy );
-      if( callbacks.bc_check ) FD_TEST( !callbacks.bc_check( test_ctx, ctx ) );
+      if( test_callbacks.bc_check ) FD_TEST( !test_callbacks.bc_check( test_ctx, ctx ) );
+      FD_TEST( !output_verify( CALLBACK_FN_BC, ctx, test_ctx ) );
     #endif
 
     #ifdef TEST_CALLBACK_AFTER_CREDIT
       int opt_poll_in;
       TEST_CALLBACK_AFTER_CREDIT( ctx, stem, &opt_poll_in, &charge_busy );
-      if( callbacks.ac_check ) FD_TEST( !callbacks.ac_check( test_ctx, ctx ) );
+      if( test_callbacks.ac_check ) FD_TEST( !test_callbacks.ac_check( test_ctx, ctx ) );
+      FD_TEST( !output_verify( CALLBACK_FN_AC, ctx, test_ctx ) );
     #endif
 
     if( !has_input ) continue;
@@ -309,7 +423,7 @@ tile_test_run( TEST_TILE_CTX_TYPE     *  ctx,
 
     #ifdef TEST_CALLBACK_BEFORE_FRAG
         test_ctx->filter = TEST_CALLBACK_BEFORE_FRAG( ctx, frag_params.in_idx, frag_params.seq, frag_params.sig );
-        if( callbacks.bf_check ) FD_TEST( !callbacks.bf_check( test_ctx, ctx ) );
+        if( test_callbacks.bf_check ) FD_TEST( !test_callbacks.bf_check( test_ctx, ctx ) );
         if( test_ctx->filter ) continue;
         detect_overrun( test_ctx );
         if( test_ctx->is_overrun ) continue;
@@ -317,7 +431,7 @@ tile_test_run( TEST_TILE_CTX_TYPE     *  ctx,
 
     #ifdef TEST_CALLBACK_DURING_FRAG
         TEST_CALLBACK_DURING_FRAG( ctx, frag_params.in_idx, frag_params.seq, frag_params.sig, frag_params.df.chunk, frag_params.sz, frag_params.df.ctl );
-        if( callbacks.df_check ) FD_TEST( !callbacks.df_check( test_ctx, ctx ) );
+        if( test_callbacks.df_check ) FD_TEST( !test_callbacks.df_check( test_ctx, ctx ) );
 
         detect_overrun( test_ctx );
         if( test_ctx->is_overrun ) continue;
@@ -325,7 +439,8 @@ tile_test_run( TEST_TILE_CTX_TYPE     *  ctx,
 
     #ifdef TEST_CALLBACK_AFTER_FRAG
         TEST_CALLBACK_AFTER_FRAG( ctx, frag_params.in_idx, frag_params.seq, frag_params.sig, frag_params.sz, frag_params.af.tsorig, frag_params.af.tspub, stem );
-        if( callbacks.af_check ) FD_TEST( !callbacks.af_check( test_ctx, ctx ) );
+        if( test_callbacks.af_check ) FD_TEST( !test_callbacks.af_check( test_ctx, ctx ) );
+        FD_TEST( !output_verify( CALLBACK_FN_AF, ctx, test_ctx ) );
     #endif
   }
 }
