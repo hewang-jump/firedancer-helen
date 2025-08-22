@@ -345,8 +345,9 @@ typedef struct fd_tile_test_locals fd_tile_test_locals_t;
 struct fd_tile_test_context {
    ulong loop_i; // test loop counter
 
-   void (*select_in_link)   (fd_tile_test_link_t ** test_links, fd_tile_test_ctx_t *, TEST_TILE_CTX_TYPE *); // for selecting upstream producer
-   void (*select_out_links) (fd_tile_test_link_t ** test_links, fd_tile_test_ctx_t *, TEST_TILE_CTX_TYPE *); // for selecting downstream consumers
+   void (*select_in_link)       (fd_tile_test_link_t ** test_links, fd_tile_test_ctx_t *, TEST_TILE_CTX_TYPE *); // for selecting upstream producer
+   void (*select_out_links)     (fd_tile_test_link_t ** test_links, fd_tile_test_ctx_t *, TEST_TILE_CTX_TYPE *); // for selecting downstream consumers
+   void (*select_overrun_links) (fd_tile_test_link_t ** test_links, fd_tile_test_ctx_t *, TEST_TILE_CTX_TYPE *); // for selecting upstream producers that will overrun the mcache
 
    fd_tile_test_link_t * in_link;   // input link for current loop, set by select_in_link above.
 
@@ -419,6 +420,13 @@ fd_tile_test_update_callback_link_out( fd_tile_test_link_t * test_link,
 void
 fd_tile_test_check_output( int                   callback_fn_num,
                            fd_tile_test_link_t * test_link );
+
+/* Used in select_overrun_links callback to overrun the input link
+   with burst amount.  The fd_tile_test_run will call invoke the
+   publish function for 'burst' amount of time.  */
+void
+fd_tile_test_add_overrun( fd_tile_test_link_t * link,
+                          ulong                 burst );
 
 /* Reset test environment between test runs (clears state, resets
    input/output selection callbacks, etc ).  Must be called before

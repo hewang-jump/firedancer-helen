@@ -52,10 +52,11 @@ struct fd_tile_test_locals {
 #define TEST_TILE_CTX_TYPE fd_net_ctx_t
 
 #define FD_TILE_TEST_LINKS_OUT_CNT 1
-#define FD_TILE_TEST_LINKS_CNT     2
+#define FD_TILE_TEST_LINKS_CNT     3
 
-#define TEST_LINK_RX 0
-#define TEST_LINK_TX 1
+#define TEST_LINK_RX  0
+#define TEST_LINK_TX1 1
+#define TEST_LINK_TX2 2
 
 /* ******************************** Test APIs ************************** */
 #define TEST_IS_FIREDANCER (1)
@@ -490,7 +491,7 @@ quic_publish( fd_tile_test_ctx_t  * test_ctx,
       locals->tx_output_sz    = sizeof(gre_pkt_t);
       locals->tx_output       = &tx_gre_pkt_output[ locals->tx_output_gre_pkt_idx ];
       test_ctx->filter_exp    = 0;
-      // FD_LOG_NOTICE(( "GRE input dst ip: %u", test_ctx->tx_input_dst_ip ));
+      // FD_LOG_NOTICE(( "GRE input dst ip: %u", locals->tx_input_dst_ip ));
       break;
     } case 1: {
       // Non-GRE packets
@@ -499,14 +500,14 @@ quic_publish( fd_tile_test_ctx_t  * test_ctx,
       locals->tx_output_sz    = sizeof(pkt_t);
       locals->tx_output       = &tx_pkt_output[ locals->tx_output_pkt_idx ];
       test_ctx->filter_exp      = 0;
-      // FD_LOG_NOTICE(( "NON-GRE input dst ip: %u", test_ctx->tx_input_dst_ip ));
+      // FD_LOG_NOTICE(( "NON-GRE input dst ip: %u", locals->tx_input_dst_ip ));
       break;
     } case 2: {
       // Invalid destination
       locals->tx_input_dst_ip = banned_ip;
       locals->tx_is_gre       = 0;
       test_ctx->filter_exp      = 1;
-      // FD_LOG_NOTICE(( "Not valid input dst ip: %u", test_ctx->tx_input_dst_ip ));
+      // FD_LOG_NOTICE(( "Not valid input dst ip: %u", locals->tx_input_dst_ip ));
       break;
     }
   }
@@ -516,7 +517,7 @@ quic_publish( fd_tile_test_ctx_t  * test_ctx,
   pkt_t * pkt = (pkt_t *)fd_chunk_to_laddr( (void *)quic_net_link->base, quic_net_link->chunk );
   fd_memcpy( pkt, &tx_pkt_input[ locals->tx_input_pkt_idx ], sizeof(pkt_t) );
 
-  // FD_LOG_NOTICE(( "quic_publish. input dst ip: %u", test_ctx->tx_input_dst_ip ));
+  // FD_LOG_NOTICE(( "quic_publish. input dst ip: %u", locals->tx_input_dst_ip ));
 
   locals->tx_output_gre_pkt_idx = (locals->tx_output_gre_pkt_idx+1)%TEST_MAX_PKTS;
   locals->tx_output_pkt_idx     = (locals->tx_output_pkt_idx+1)%TEST_MAX_PKTS;
@@ -601,7 +602,7 @@ xsk_af_check( fd_tile_test_ctx_t * test_ctx,
     FD_LOG_WARNING(( "TX output pkt unmatched" ));
     return -1;
   }
-  // FD_LOG_NOTICE(( "TX pkt verified. tx_output_sz: %lu", locals->tx_output_sz ));
+  FD_LOG_NOTICE(( "TX pkt verified at %p, tx_output_sz: %lu", out_mem, locals->tx_output_sz ));
   return 0;
 }
 
@@ -609,7 +610,7 @@ static void
 select_tx_path_in_link( fd_tile_test_link_t ** test_links,
                         fd_tile_test_ctx_t  *  test_ctx,
                         fd_net_ctx_t        *  ctx FD_PARAM_UNUSED ) {
-  test_ctx->in_link = test_links[ TEST_LINK_TX ];
+  test_ctx->in_link = test_links[ TEST_LINK_TX1 ];
 }
 
 /* ****************************** RX Path ***********************************/
@@ -670,6 +671,17 @@ select_rx_path_out_links( fd_tile_test_link_t ** test_links,
                           fd_net_ctx_t        * ctx FD_PARAM_UNUSED ) {
   xsk_recv( test_ctx );
   fd_tile_test_check_output( FD_TILE_TEST_CALLBACK_BEFORE_CREDIT, test_links[ TEST_LINK_RX ] );
+}
+
+/* Overrun the shred_net and quic_net input links */
+static void
+select_tx_path_overruns( fd_tile_test_link_t ** test_links,
+                         fd_tile_test_ctx_t  *  test_ctx,
+                         fd_net_ctx_t        * ctx FD_PARAM_UNUSED ) {
+  if( !test_ctx->is_overrun ) {
+    fd_tile_test_add_overrun( test_links[ TEST_LINK_TX1 ], test_links[ TEST_LINK_TX1 ]->depth );
+    fd_tile_test_add_overrun( test_links[ TEST_LINK_TX2 ], test_links[ TEST_LINK_TX2 ]->depth );
+  }
 }
 
 /* before_credit check for net_quic output link. Verify the published packet. */
@@ -772,20 +784,24 @@ int main( int     argc,
   uint is_gre_inf = 0U;
   FD_TEST( net_tx_route( ctx, FD_IP4_ADDR( 1,1,1,1 ), &is_gre_inf )==0 );
 
-  fd_tile_test_link_t tx_link = {0};
-  fd_tile_test_init_link_in( &config->topo, &tx_link, "quic_net", ctx, xdp_find_in_idx,
+  fd_tile_test_link_t tx_link1 = {0};
+  fd_tile_test_init_link_in( &config->topo, &tx_link1, "quic_net", ctx, xdp_find_in_idx,
+                          quic_publish, quic_make_sig, quic_bf_check, NULL, xsk_af_check );
+  fd_tile_test_link_t tx_link2 = {0};
+  fd_tile_test_init_link_in( &config->topo, &tx_link2, "shred_net", ctx, xdp_find_in_idx,
                           quic_publish, quic_make_sig, quic_bf_check, NULL, xsk_af_check );
   fd_tile_test_link_t rx_link = {0};
   fd_tile_test_init_link_out( &config->topo, &rx_link, "net_quic", quic_out_check );
 
-  fd_tile_test_link_t * test_links[ 2 ] = {0};
-  test_links[ TEST_LINK_RX ] = &rx_link;
-  test_links[ TEST_LINK_TX ] = &tx_link;
+  fd_tile_test_link_t * test_links[ 3 ] = {0};
+  test_links[ TEST_LINK_RX  ] = &rx_link;
+  test_links[ TEST_LINK_TX1 ] = &tx_link1;
+  test_links[ TEST_LINK_TX2 ] = &tx_link2;
 
   ulong min_cr_avail         = ULONG_MAX;
 
-  fd_frag_meta_t * out_mcache[ 1 ] = { tx_link.mcache };
-  ulong            out_depth[  1 ] = { tx_link.depth  };
+  fd_frag_meta_t * out_mcache[ 1 ] = { tx_link1.mcache };
+  ulong            out_depth[  1 ] = { tx_link1.depth  };
   ulong            out_seq[    1 ] = { 0                  };
   ulong            cr_avil[    1 ] = { ULONG_MAX      };
   fd_stem_context_t stem = {
@@ -810,6 +826,12 @@ int main( int     argc,
   fd_tile_test_reset_env( &test_ctx, &stem, test_links, select_tx_path_in_link, select_rx_path_out_links, NULL, NULL );
   xdp_reset( &test_ctx, ctx );
   fd_tile_test_run( ctx, &stem, test_links, &test_ctx, TEST_MAX_PKTS*2, TEST_MAX_PKTS );
+
+  FD_LOG_NOTICE(( "[tile-unit-test] Test RX overruns" ));
+  fd_tile_test_reset_env( &test_ctx, &stem, test_links, select_tx_path_in_link, select_rx_path_out_links, NULL, NULL );
+  xdp_reset( &test_ctx, ctx );
+  test_ctx.select_overrun_links = select_tx_path_overruns;
+  fd_tile_test_run( ctx, &stem, test_links, &test_ctx, 2, TEST_MAX_PKTS );
 
   /* TODO: test should be expanded to use random tests */
   /* Tear down tile-unit-test. */

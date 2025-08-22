@@ -408,10 +408,17 @@ static void
 overrun_txn_select_in_link( fd_tile_test_link_t ** test_links,
                             fd_tile_test_ctx_t  *  test_ctx,
                             fd_pack_ctx_t       *  ctx ) {
+  // FD_LOG_NOTICE(( "overrun_txn_select_in_link-is_overrun: %lu", test_ctx->is_overrun ));
   if( test_links[ TEST_LINK_RESOLV_PACK ]->cons_seq==ULONG_MAX ||
       test_ctx->is_overrun ) {
+    if( test_ctx->is_overrun ) {
+      test_ctx->locals->txn_i++;
+      test_ctx->locals->txn_ref_i++;
+    }
+    // FD_LOG_NOTICE(( "in link: TEST_LINK_RESOLV_PACK" ));
     test_ctx->in_link = test_links[ TEST_LINK_RESOLV_PACK ];
   } else if ( ctx->leader_slot==ULONG_MAX ) {
+    // FD_LOG_NOTICE(( "in link: TEST_LINK_POH_PACK" ));
     test_ctx->in_link = test_links[ TEST_LINK_POH_PACK ];
   } else {
     test_ctx->in_link = NULL;
@@ -425,6 +432,21 @@ overrun_txn_select_out_links( fd_tile_test_link_t ** test_links,
   if( ctx->leader_slot!=ULONG_MAX &&
       test_ctx->locals->txn_in_pack ) {
     fd_tile_test_check_output( FD_TILE_TEST_CALLBACK_AFTER_CREDIT, test_links[ TEST_LINK_PACK_BANK ] );
+  }
+}
+
+/* The resolv-pack link is reliable, so we won't overrun on this link,
+   keep as a reference. Use this as a replacement to the
+   resolve_publish_txn_overrun function. */
+static void
+select_overrun_links( fd_tile_test_link_t ** test_links,
+                      fd_tile_test_ctx_t  *  test_ctx,
+                      fd_pack_ctx_t       *  ctx FD_PARAM_UNUSED ) {
+  // FD_LOG_NOTICE(( "select_overrun_links. test_ctx->is_overrun: %lu", test_ctx->is_overrun ));
+  if( !test_ctx->is_overrun && test_ctx->locals->curr_leader_slot==ULONG_MAX ) {
+    test_ctx->locals->txn_i++;
+    test_ctx->locals->txn_ref_i++;
+    fd_tile_test_add_overrun( test_links[ TEST_LINK_RESOLV_PACK ], test_links[ TEST_LINK_RESOLV_PACK ]->depth );
   }
 }
 
@@ -1138,6 +1160,13 @@ main( int     argc,
   fd_tile_test_reset_env( &test_ctx, &stem, test_links, overrun_txn_select_in_link, overrun_txn_select_out_links, bc_check, NULL );
   pack_reset( &config->topo, pack_tile, &test_ctx, ctx, 0, 0 );
   fd_tile_test_run( ctx, &stem, test_links, &test_ctx, 7, 2 );
+
+  /* Same transaction overrun test, but with select_overrun_links */
+  fd_tile_test_update_callback_link_in( &resolv_pack_link, FD_TILE_TEST_CALLBACK_PUBLISH, resolve_publish_txn, NULL );
+  fd_tile_test_reset_env( &test_ctx, &stem, test_links, overrun_txn_select_in_link, overrun_txn_select_out_links, bc_check, NULL );
+  pack_reset( &config->topo, pack_tile, &test_ctx, ctx, 0, 0 );
+  test_ctx.select_overrun_links = select_overrun_links;
+  fd_tile_test_run( ctx, &stem, test_links, &test_ctx, 20, 5 );
 
   /* Transaction stress test */
   FD_LOG_NOTICE(( "[tile-unit-test] Stress test txn I/O" ));

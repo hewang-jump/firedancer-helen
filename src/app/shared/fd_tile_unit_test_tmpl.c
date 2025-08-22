@@ -50,6 +50,11 @@ struct test_callbacks {
   int                   after_credit_output_links_cnt;
   fd_tile_test_link_t * after_frag_output_links[ FD_TILE_TEST_LINKS_OUT_CNT ];  // links that expect after_frag to produce frags
   int                   after_frag_output_links_cnt;
+
+  // input links that will get overrun at each test loop
+  fd_tile_test_link_t * overrun_links[      FD_TILE_TEST_LINKS_CNT - FD_TILE_TEST_LINKS_OUT_CNT ];
+  ulong                 overrun_link_burst[ FD_TILE_TEST_LINKS_CNT - FD_TILE_TEST_LINKS_OUT_CNT ];
+  int                   overrun_links_cnt;
 };
 
 static fd_tile_test_callbacks_t test_callbacks;  // test callbacks for each test loop
@@ -293,6 +298,38 @@ init_test_callbacks( void ) {
   fd_memset( &test_callbacks, 0, sizeof(fd_tile_test_callbacks_t) );
 }
 
+static void
+upstream_produce_overrun( TEST_TILE_CTX_TYPE  *  ctx,
+                          fd_tile_test_ctx_t  *  test_ctx,
+                          fd_tile_test_link_t ** test_links ) {
+  test_callbacks.overrun_links_cnt = 0;
+  if( !test_ctx->select_overrun_links ) return;
+
+  test_ctx->select_overrun_links( test_links, test_ctx, ctx );
+  for( int i = 0; i<test_callbacks.overrun_links_cnt; i++ ) {
+    fd_tile_test_link_t * overrun_link = test_callbacks.overrun_links[ i ];
+    FD_TEST( overrun_link );
+
+    ulong seq_start = overrun_link->prod_seq;
+    while( overrun_link->prod_seq - seq_start < test_callbacks.overrun_link_burst[ i ] ) {
+      ulong frag_sz = overrun_link->publish( test_ctx, overrun_link );
+      if( !frag_sz ) continue;
+      overrun_link->chunk    = fd_dcache_compact_next( overrun_link->chunk, frag_sz, overrun_link->chunk0, overrun_link->wmark );
+      overrun_link->prod_seq = fd_seq_inc( overrun_link->prod_seq, 1);
+    }
+  }
+}
+
+void
+fd_tile_test_add_overrun( fd_tile_test_link_t * link,
+                          ulong                 burst ) {
+  if( !link->is_input_link ) FD_LOG_ERR(("fd_tile_test_add_overrun failed: link is not an upstream/input/producer link"));
+  test_callbacks.overrun_links[      test_callbacks.overrun_links_cnt ] = link;
+  test_callbacks.overrun_link_burst[ test_callbacks.overrun_links_cnt ] = burst;
+  test_callbacks.overrun_links_cnt++;
+}
+
+
 /* Detect overrun by checking the difference between in_link's prod_seq and cons_seq.
    If overrun is detected, set in_link->cons_seq to prod_seq-1.
    Could be unused if no frag callbacks specified */
@@ -424,14 +461,12 @@ fd_tile_test_run( TEST_TILE_CTX_TYPE  *  ctx,
         test_ctx->filter = TEST_CALLBACK_BEFORE_FRAG( ctx, frag_params.in_idx, frag_params.seq, frag_params.sig );
         if( test_callbacks.before_frag_check ) FD_TEST( !test_callbacks.before_frag_check( test_ctx, ctx ) );
         if( test_ctx->filter ) continue;
-        detect_overrun( test_ctx );
-        if( test_ctx->is_overrun ) continue;
     #endif
 
     #ifdef TEST_CALLBACK_DURING_FRAG
         TEST_CALLBACK_DURING_FRAG( ctx, frag_params.in_idx, frag_params.seq, frag_params.sig, frag_params.during_frag.chunk, frag_params.sz, frag_params.during_frag.ctl );
         if( test_callbacks.during_frag_check ) FD_TEST( !test_callbacks.during_frag_check( test_ctx, ctx ) );
-
+        upstream_produce_overrun( ctx, test_ctx, test_links );
         detect_overrun( test_ctx );
         if( test_ctx->is_overrun ) continue;
     #endif
